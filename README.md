@@ -1,67 +1,59 @@
 # ACR: Antigravity Comic Reader 🚀📚
 
-**ACR (Antigravity Comic Reader)** is a premium, AI-enhanced comic reader for iOS, specifically designed as a client for **Komga** servers. It combines a modern "Neon" aesthetic with powerful artificial intelligence features to provide the ultimate digital comic experience.
+**ACR (Antigravity Comic Reader)** is the ultimate AI-enhanced comic reader for iPad, designed to be the central hub for your entire digital comic collection.
+
+Unlike simple viewers, ACR consolidates comics from disparate sources into a unified, high-performance **Local Library** directly on your device. Whether your files are on a remote server, a cloud service, or your PC, ACR brings them all together in one beautiful, "Neon"-styled interface.
+
+---
+
+## 🌟 The "Universal Hub" Philosophy
+
+ACR is built on a simple premise: **Read everything locally, importing from anywhere.**
+Instead of just viewing remote libraries, ACR downloads and consolidates your favorite series into a powerful local database, giving you offline access and lightning-fast performance.
+
+### 📥 Supported Sources
+Collect and manage comics (CBR/CBZ/PDF) from a wide variety of sources:
+*   **Komga** (Native Client)
+*   **Kavita**
+*   **YACReader**
+*   **FTP / SFTP**
+*   **Direct Browser Upload**: Connect your PC/Mac to the iPad via local Wi-Fi and upload folders of comics directly through a drag-and-drop web interface.
 
 ---
 
 ## ✨ Key Features
 
-### 🤖 AI-Powered Intelligence (Powered by Google Gemini)
-*   **AI Translation**: Real-time optical character recognition (OCR) and translation of speech balloons. Read foreign comics in your native language instantly!
-*   **Story Recap**: Can't remember what happened in the previous issue? ACR uses AI to generate concise story recaps based on your series and volume metadata.
-*   **Persistence**: Translated balloons are cached locally for instant re-reading without consuming API quota.
+### 🤖 AI-Powered Context & Translation
+ACR leverages advanced AI (Google Gemini) to transform your reading experience:
+*   **"What Happened Before?"**: Starting a new volume? ACR's AI analyzes previous issues and generates a concise **Story Recap**, so you never lose the plot.
+*   **Live Translation**: Instantly translate speech balloons in foreign comics using on-device OCR and AI translation, preserving the original artwork's feel.
 
-### 🎨 Modern "Neon" UI
-*   **Collectible Box View**: Folders and series are presented as elegant collectible boxes with lid-style lids and handle cutouts.
-*   **Dynamic Backgrounds**: Immersive blurred cover art backgrounds that adapt to what you are currently viewing.
-*   **Hero Sections**: Beautiful detail views for books with large high-resolution covers and extracted metadata.
+### 📂 True Local Management
+*   **Unified Library**: Files from Komga, FTP, or your PC all live side-by-side in a single, organized library.
+*   **Web Server Drop Zone**: Turn your iPad into a local server! Open the provided URL on your computer to drag-and-drop entire folders of comics wirelessly.
+*   **Smart Metadata**: Full `ComicInfo.xml` support ensures your writers, pencillers, and summaries are always accurate.
 
-### 📖 Professional Reader
-*   **True Fullscreen**: Zero distractions—system bars are completely hidden during reading.
-*   **Pinch-to-Zoom**: Native gesture support for exploring every detail of the artwork.
-*   **Page Navigation**: Smooth thumbnail slider and quick navigation arrows.
-*   **Sharing**: Integrated iOS Share Sheet to share your favorite panels with friends.
-
-### 📂 Library Management
-*   **Offline Mode**: Download books and series to your local storage for reading anywhere.
-*   **Metadata Mastery**: Full support for `ComicInfo.xml` parsing, showing writers, pencillers, issue numbers, and summaries.
-*   **Smart Refresh**: Automatically detects new downloads and updates your local library.
+### 🎨 Premium "Neon" Aesthetic
+*   **Collectible Box Design**: Series are presented as 3D-styled collectible boxes with holographic details.
+*   **Dynamic Immersion**: Backgrounds adapt in real-time to the color palette of the comic you're reading.
+*   **Focus Mode**: A professional-grade reading engine that hides all distractions for pure immersion.
 
 ---
 
 ## 🔒 Security & Privacy
 
-ACR is designed with a **"Zero-Leak"** security model:
-*   **No Hardcoded Secrets**: All sensitive data (Komga credentials, Gemini/OpenAI API keys) are removed from the source code.
-*   **Local Storage only**: Credentials are saved exclusively on your device using `@AppStorage` (Encrypted UserDefaults).
-*   **Privacy-First**: Your data never leaves your device and is never committed to Git repositories.
+ACR follows a strict **"Zero-Leak"** architecture:
+*   **Local-First Credentials**: API keys and passwords are stored exclusively in your device's encrypted Keychain/UserDefaults.
+*   **Sandbox Security**: The embedded web server is secured with Basic Auth and operates only within your local network.
 
 ---
 
-## 🛠 Installation & Setup
+## 🛠 Setup & Requirements
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/robgola/AntigravityComicsReader.git
-    ```
-2.  **Install Dependencies**:
-    Requires CocoaPods for specialized image processing (OpenCV).
-    ```bash
-    pod install
-    ```
-3.  **Open in Xcode**: Use the `.xcworkspace` file.
-4.  **Connect to Komga**:
-    *   Navigate to the **Options** tab.
-    *   Tap **EDIT** to enter your server address, port, and credentials.
-    *   Paste your **Google Gemini API Key** for AI features.
-    *   Tap **SAVE**.
+1.  **Format Support**: CBR, CBZ, PDF.
+2.  **Device**: iPad (iOS 16+ Recommended).
+3.  **Connectivity**: Local Wi-Fi required for Web Server uploads and Source imports.
 
 ---
 
-## 📄 License
-
-This project is specialized for the community. Please refer to developers for contribution guidelines.
-
----
-
-*Enjoy your reading with ACR!*
+*Explore the universe of comics with Antigravity.*

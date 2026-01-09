@@ -10,17 +10,6 @@ struct PillFilterBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                // "Tutte" (All) Tab
-                Button(action: { selectedTab = "Tutte" }) {
-                    Text("Tutte")
-                        .font(.headline)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 20)
-                        .background(selectedTab == "Tutte" ? Color.white : Color(white: 0.2))
-                        .foregroundColor(selectedTab == "Tutte" ? .black : .white)
-                        .cornerRadius(20)
-                }
-                
                 // Dynamic Library Tabs
                 ForEach(Array(tabs.enumerated()), id: \.element) { index, tab in
                     let color = pillColors[index % pillColors.count]

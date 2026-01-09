@@ -73,7 +73,7 @@ struct ReaderOverlayView: View {
                             let scaledPath = localPath.applying(transform)
                             
                             scaledPath
-                                .fill(Color.white)
+                                .fill(Color(hex: balloon.backgroundColorHex ?? "#FFFFFF"))
                                 .shadow(color: .black.opacity(0.15), radius: 3, x: 1, y: 2)
                             
                         } else {
@@ -83,7 +83,7 @@ struct ReaderOverlayView: View {
                             let rect = calculateRect(for: balloon.box2D, renderRect: renderRect)
                             
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white)
+                                .fill(Color(hex: balloon.backgroundColorHex ?? "#FFFFFF"))
                                 .frame(width: rect.width, height: rect.height)
                                 .position(x: rect.midX, y: rect.midY)
                                 .shadow(color: .black.opacity(0.15), radius: 3, x: 1, y: 2)
@@ -97,15 +97,36 @@ struct ReaderOverlayView: View {
                      let rect = calculateRect(for: balloon.box2D, renderRect: renderRect)
                      
                      // Text Container
-                     // We use a much safer frame for text to avoid touching edges, especially for ovals/clouds
-                     // Using proportional inset (8% of width/height) to ensure text stays inside but maximizes space
-                     let insetX = rect.width * 0.08
-                     let insetY = rect.height * 0.08
+                     // GOLDEN PARAMETER: 15% Inset. Restored by user request.
+                     let insetX = rect.width * 0.15
+                     let insetY = rect.height * 0.15
                      let textFrame = rect.insetBy(dx: max(2, insetX), dy: max(2, insetY))
+                     
+                     // Text Formatting
+                     let displayedText = (balloon.isUppercase ?? true) ? balloon.translatedText.uppercased() : balloon.translatedText
+                     let textColor = Color(hex: balloon.textColorHex ?? "#000000")
+                     
+                     // Dynamic Font Selection
+                     var fontDesign: Font.Design {
+                         switch balloon.fontType {
+                         case "computer": return .monospaced
+                         case "serif": return .serif
+                         default: return .rounded // Covers handwritten, normal
+                         }
+                     }
+                     
+                     var fontWeight: Font.Weight {
+                         switch balloon.fontType {
+                         case "bold", "shout": return .black // Extra heavy for shout
+                         default: return .bold // Base weight increased to BOLD
+                         }
+                     }
                     
-                     Text(balloon.translatedText)
-                        .font(.system(size: calculateFontSize(for: rect), weight: .semibold, design: .rounded))
-                        .foregroundColor(.black)
+                     Text(displayedText)
+                        .font(.system(size: calculateFontSize(for: rect), weight: fontWeight, design: fontDesign))
+                        .italic(balloon.fontType == "italic")
+                        .kerning(-0.5) // "Meno spaziatura" (Tight tracking)
+                        .foregroundColor(textColor)
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .minimumScaleFactor(0.3) // Allow aggressive scaling down
@@ -157,8 +178,37 @@ struct ReaderOverlayView: View {
         return CGRect(x: x, y: y, width: w, height: h)
     }
     
+    
     private func calculateFontSize(for rect: CGRect) -> CGFloat {
         let dimension = min(rect.height, rect.width)
         return max(10, dimension * 0.15)
+    }
+}
+
+// Helper: Hex Color
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 255, 255, 255)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }

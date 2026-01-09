@@ -35,11 +35,18 @@ class GeminiService: ObservableObject {
           "italian_translation": "...",
            "box_2d": [ymin, xmin, ymax, xmax],
            "should_translate": true,
-           "shape": "OVAL"
+           "shape": "OVAL",
+           "background_color": "#HEX" (EXACT dominant color. Do NOT say 'WHITE'. Use #F8F8FF, #FFFFF0 etc.),
+           "text_color": "#HEX",
+           "is_uppercase": true/false (Is original text all caps?),
+           "font_type": "handwritten" or "bold" or "computer"
         }
       ]
     }
     """
+    
+    // Memory Cache: [PersistenceID_PageIndex : Balloons]
+    private var translationCache: [String: [TranslatedBalloon]] = [:]
     
     // Helper: Resize Image
     private func resizeImage(_ image: UIImage, targetSize: CGSize = CGSize(width: 1560, height: 1560)) -> Data? {
@@ -73,12 +80,14 @@ class GeminiService: ObservableObject {
     }
     // Using gemini-2.5-flash (User requested and verified via screenshot)
     private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    public let currentModelName = "gemini-2.5-flash" // v5.28.0: Exposed for UI
     
     // ... rest of init ...
 
 
     
     private init() {
+         checkDailyReset()
          Task {
             await verifyApiKey()
          }
@@ -115,7 +124,7 @@ class GeminiService: ObservableObject {
                 if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                 await MainActor.run {
                     self.isApiKeyValid = true
-                    self.validationStatus = "Valid (Gemini 1.5 Flash)"
+                    self.validationStatus = "Valid"
                 }
             } else {
                 let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
@@ -149,17 +158,35 @@ class GeminiService: ObservableObject {
         }
     }
     
-    private func listAvailableModels() async {
+    // v5.27.0: Public API to list models
+    func fetchAvailableModels() async throws -> [String] {
         let listURLString = "https://generativelanguage.googleapis.com/v1beta/models?key=\(apiKey)"
-        guard let url = URL(string: listURLString) else { return }
+        guard let url = URL(string: listURLString) else { return [] }
         
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let json = try JSONSerialization.jsonObject(with: data)
-            print("Available Models: \(json)")
-        } catch {
-            print("Failed to list models: \(error)")
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw NSError(domain: "GeminiService", code: 400, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch models"])
         }
+        
+        struct ModelList: Decodable {
+            struct Model: Decodable {
+                let name: String
+                let displayName: String?
+                let description: String?
+            }
+            let models: [Model]?
+        }
+        
+        let decoded = try JSONDecoder().decode(ModelList.self, from: data)
+        // Return display names or raw names (filtered for Gemini)
+        return decoded.models?.compactMap { $0.displayName ?? $0.name } ?? []
+    }
+    
+    private func listAvailableModels() async {
+        // Legacy internal debug method - consolidated above but kept if needed for internal debug, 
+        // but let's just piggyback or remove. I'll keep it simple and just replace it with the new func wrapper if needed 
+        // or just ignore it since we are replacing the function definition entirely in this block.
     }
     
     struct GeminiResponse: Codable {
@@ -282,13 +309,66 @@ class GeminiService: ObservableObject {
     }
     // MARK: - AI Story Recap
     
+    // MARK: - RPD (Requests Per Day) System
+    
+    @Published var dailyRequests: Int = 0
+    @Published var peakDailyRequests: Int = 0
+    
+    private let kDailyRequests = "dailyRequests"
+    private let kPeakDailyRequests = "peakDailyRequests"
+    private let kLastRequestDate = "lastRequestDate"
+    
+    private func checkDailyReset() {
+        let lastDate = UserDefaults.standard.object(forKey: kLastRequestDate) as? Date ?? Date.distantPast
+        
+        if !Calendar.current.isDateInToday(lastDate) {
+            // New Day! Reset counter
+            DispatchQueue.main.async {
+                self.dailyRequests = 0
+                UserDefaults.standard.set(0, forKey: self.kDailyRequests)
+                // Peak is persistent, do not reset
+                
+                // Update Date
+                UserDefaults.standard.set(Date(), forKey: self.kLastRequestDate)
+            }
+        } else {
+            // Same Day, load from persistence if 0 (app restart)
+            if self.dailyRequests == 0 {
+                self.dailyRequests = UserDefaults.standard.integer(forKey: kDailyRequests)
+            }
+        }
+        
+        // Load Peak
+        if self.peakDailyRequests == 0 {
+            self.peakDailyRequests = UserDefaults.standard.integer(forKey: kPeakDailyRequests)
+        }
+    }
+    
+    private func incrementRequestCount() {
+        checkDailyReset() // Ensure we are on the right day
+        
+        DispatchQueue.main.async {
+            self.dailyRequests += 1
+            UserDefaults.standard.set(self.dailyRequests, forKey: self.kDailyRequests)
+            UserDefaults.standard.set(Date(), forKey: self.kLastRequestDate) // Mark activity
+            
+            // Check Peak
+            if self.dailyRequests > self.peakDailyRequests {
+                self.peakDailyRequests = self.dailyRequests
+                UserDefaults.standard.set(self.peakDailyRequests, forKey: self.kPeakDailyRequests)
+            }
+        }
+    }
+
     struct StoryRecapResult: Codable {
         let recap: String
     }
     
-    @Published var callCount: Int = 0 // New: Monitor API usage
+    // Legacy callCount kept for compatibility but RPD is the new standard
+    @Published var callCount: Int = 0 
     
     func generateStoryRecap(series: String, number: String, volume: String, publisher: String) async throws -> String {
+        incrementRequestCount()
         await MainActor.run { self.callCount += 1 }
         
         let urlString = "\(baseURL)?key=\(apiKey)"
@@ -367,6 +447,7 @@ class GeminiService: ObservableObject {
     // MARK: - Helper: Request with Retry
     
     private func performRequestWithRetry(request: URLRequest, maxRetries: Int = 3) async throws -> Data {
+        incrementRequestCount() // Track RPD
         for attempt in 1...maxRetries {
             do {
                 // Extended Configuration for Large Images
@@ -774,14 +855,25 @@ class GeminiService: ObservableObject {
         }
         
         if let jsonData = jsonString.data(using: .utf8) {
-            return try JSONDecoder().decode(GeminiVisionResponse.self, from: jsonData)
+            let result = try JSONDecoder().decode(GeminiVisionResponse.self, from: jsonData)
+            
+            // DEBUG: Inspect Aesthetics
+            if let first = result.balloons.first {
+                print("🎨 AESTHETICS DEBUG:")
+                print("   - BG: \(first.backgroundColorHex ?? "nil")")
+                print("   - Text: \(first.textColorHex ?? "nil")")
+                print("   - Uppercase: \(first.isUppercase ?? true)")
+                print("   - Font: \(first.fontType ?? "nil")")
+            }
+            
+            return result
         }
         
         throw GeminiError.invalidResponse
     }
-    // MARK: - Persistence
+    // MARK: - Persistence (v6.4 Sidecar)
     
-    private var translationsDirectory: URL {
+    private var legacyTranslationsDirectory: URL {
         let urls = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
         let appSupport = urls[0]
         let translationsDir = appSupport.appendingPathComponent("Translations")
@@ -791,32 +883,153 @@ class GeminiService: ObservableObject {
         return translationsDir
     }
     
-    func saveTranslations(_ balloons: [TranslatedBalloon], forBook bookId: String, pageIndex: Int) {
+    // Check if translation exists (for UI feedback)
+    func isTranslationAvailable(forBook bookId: String, bookURL: URL? = nil, pageIndex: Int) -> Bool {
+        // 1. Check Sidecar
+        if let bookURL = bookURL {
+            let directory = getDirectory(for: bookURL, bookId: bookId)
+            let filename = "p\(pageIndex).json"
+            let url = directory.appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: url.path) { return true }
+        }
+        
+        // 2. Check Legacy
         let filename = "\(bookId)_p\(pageIndex).json"
-        let url = translationsDirectory.appendingPathComponent(filename)
+        let url = legacyTranslationsDirectory.appendingPathComponent(filename)
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+    
+    /// Helper to determine the correct directory for a book
+    private func getDirectory(for bookURL: URL?, bookId: String) -> URL {
+        // Mode 1: Sidecar (If URL is provided and valid)
+        if let bookURL = bookURL {
+            // e.g. /Documents/Comics/Spiderman.cbz
+            // Target: /Documents/Comics/Spiderman/
+            let parentDir = bookURL.deletingLastPathComponent()
+            let bookName = bookURL.deletingPathExtension().lastPathComponent
+            // User Request: Directory name exact match with file (no suffix)
+            let sidecarDir = parentDir.appendingPathComponent(bookName)
+            
+            // Create if needed
+            if !FileManager.default.fileExists(atPath: sidecarDir.path) {
+                try? FileManager.default.createDirectory(at: sidecarDir, withIntermediateDirectories: true)
+            }
+            return sidecarDir
+        }
+        
+        // Mode 2: Legacy (App Support)
+        return legacyTranslationsDirectory
+    }
+    
+    // Delete ALL translations for a specific book (Trash Can feature)
+    func deleteTranslations(forBook bookId: String, bookURL: URL? = nil) {
+        // 1. Delete Sidecar Directory
+        if let bookURL = bookURL {
+            let directory = getDirectory(for: bookURL, bookId: bookId)
+            // Safety check: Ensure we are deleting a directory that looks like a comic sidecar
+            if directory.path.contains("Translations") || directory.lastPathComponent == bookURL.deletingPathExtension().lastPathComponent {
+                do {
+                    if FileManager.default.fileExists(atPath: directory.path) {
+                        try FileManager.default.removeItem(at: directory)
+                        print("🗑️ Deleted Sidecar Translations: \(directory.path)")
+                    }
+                } catch {
+                    print("❌ Failed to delete sidecar directory: \(error)")
+                }
+            }
+        }
+        
+        // 2. Delete Legacy Files (Prefix match)
+        // This is less efficient but necessary for legacy support.
+        do {
+            let files = try FileManager.default.contentsOfDirectory(at: legacyTranslationsDirectory, includingPropertiesForKeys: nil)
+            for file in files {
+                if file.lastPathComponent.starts(with: bookId) {
+                    try FileManager.default.removeItem(at: file)
+                    print("🗑️ Deleted Legacy Translation File: \(file.lastPathComponent)")
+                }
+            }
+        } catch {
+            print("❌ Failed to clean legacy files: \(error)")
+        }
+        
+        // Clear Memory Cache
+        translationCache.removeAll()
+    }
+    
+    func saveTranslations(_ balloons: [TranslatedBalloon], forBook bookId: String, bookURL: URL? = nil, pageIndex: Int) {
+        // 1. Try Sidecar First (Preferred)
+        if let bookURL = bookURL {
+            let directory = getDirectory(for: bookURL, bookId: bookId)
+            let filename = "p\(pageIndex).json"
+            let url = directory.appendingPathComponent(filename)
+            
+            do {
+                let data = try JSONEncoder().encode(balloons)
+                try data.write(to: url)
+                print("💾 Saved translations to Sidecar: \(url.path)")
+                return // Success
+            } catch {
+                print("⚠️ Sidecar Save Failed (Permissions?): \(error). Falling back to AppSupport.")
+                // Fallthrough to Legacy
+            }
+        }
+        
+        // Populate Memory Cache
+        let cacheKey = "\(bookId)_\(pageIndex)"
+        translationCache[cacheKey] = balloons
+        
+        // 2. Fallback to Legacy (App Support)
+        let filename = "\(bookId)_p\(pageIndex).json"
+        let url = legacyTranslationsDirectory.appendingPathComponent(filename)
         
         do {
             let data = try JSONEncoder().encode(balloons)
             try data.write(to: url)
-            print("💾 Saved translations for \(filename)")
+            print("💾 Saved translations to AppSupport: \(url.path)")
         } catch {
-            print("⚠️ Failed to save translations: \(error)")
+            print("❌ Critical: Failed to save translations: \(error)")
         }
     }
     
-    func loadTranslations(forBook bookId: String, pageIndex: Int) -> [TranslatedBalloon]? {
-        let filename = "\(bookId)_p\(pageIndex).json"
-        let url = translationsDirectory.appendingPathComponent(filename)
+    func loadTranslations(forBook bookId: String, bookURL: URL? = nil, pageIndex: Int) -> [TranslatedBalloon]? {
+        // 0. Check Memory Cache
+        let cacheKey = "\(bookId)_\(pageIndex)"
+        if let cached = translationCache[cacheKey] {
+            return cached
+        }
         
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        // 1. Check Disk
+        let directory = getDirectory(for: bookURL, bookId: bookId)
+        let filename = "p\(pageIndex).json"
+        let url = directory.appendingPathComponent(filename)
+        
+        // Legacy Fallback check (if sidecar empty, check legacy)
+        // Only if bookURL was provided (so we looked in sidecar) but failed
+        if !FileManager.default.fileExists(atPath: url.path) {
+            if bookURL != nil {
+                // Try legacy path
+                let legacyFilename = "\(bookId)_p\(pageIndex).json"
+                let legacyUrl = legacyTranslationsDirectory.appendingPathComponent(legacyFilename)
+                if FileManager.default.fileExists(atPath: legacyUrl.path) {
+                    print("📦 Found Legacy Cache for p\(pageIndex), migrating...")
+                    // Optional: Migrate to new format? For now just load.
+                    return try? JSONDecoder().decode([TranslatedBalloon].self, from: Data(contentsOf: legacyUrl))
+                }
+            }
+            return nil
+        }
         
         do {
             let data = try Data(contentsOf: url)
             let balloons = try JSONDecoder().decode([TranslatedBalloon].self, from: data)
-            print("📂 Loaded translations for \(filename)")
+            print("📂 Loaded translations from \(url.path)")
+            // Populate Cache
+            translationCache[cacheKey] = balloons
             return balloons
         } catch {
-            print("⚠️ Failed to load translations: \(error)")
+            print("⚠️ Failed to JSON decode sidecar translations: \(error)")
+            // If decode fails, maybe try legacy? Or just return nil.
             return nil
         }
     }

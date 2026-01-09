@@ -45,7 +45,7 @@ struct ContinueReadingCarouselView: View {
                     HStack(alignment: .top, spacing: 24) {
                         // 1. Cover (Clickable -> Reader)
                         NavigationLink(destination: 
-                            ComicReaderView(bookURL: book.url, bookId: book.id)
+                            ComicReaderView(bookURL: book.url, bookId: book.id, sourceURL: book.originalURL)
                                 .toolbar(.hidden, for: .tabBar)
                         ) {
                             if let original = book.coverImage {
@@ -154,13 +154,13 @@ struct ContinueReadingCarouselView: View {
             .frame(height: 350) // Fixed Height for the Section
             .cornerRadius(12)
             .background(Color.black.opacity(0.5)) // Darken background logic
-            .onChange(of: currentIndex) { _ in
+            .onChange(of: currentIndex) { _, _ in
                 loadMetadata(for: books[currentIndex])
             }
             .onAppear {
                 loadMetadata(for: books[currentIndex])
             }
-            .onChange(of: books.map(\.id)) { oldVal, newVal in
+            .onChange(of: books.map(\.id)) { _, _ in // Changed oldVal, newVal to _, _ to fix warning
                 currentIndex = 0 // Reset to start
                 if !books.isEmpty {
                     loadMetadata(for: books[0])

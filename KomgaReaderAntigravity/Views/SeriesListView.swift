@@ -32,7 +32,9 @@ struct SeriesListView: View {
     @State private var showConflictAlert = false
     
     // 5 Columns Grid
-    let columns = Array(repeating: GridItem(.flexible(), spacing: 20), count: 5)
+    var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 20), count: appState.importColumns)
+    }
     
     // Cache for series covers
     @State private var seriesCovers: [String: UIImage] = [:]
@@ -116,6 +118,7 @@ struct SeriesListView: View {
                         .allowsHitTesting(false) // Let touches pass to buttons
                     }
                     .frame(height: 60) // Fixed height for elegance
+                    .padding(.top, 80) // Fix: Prevent overlap with MainTabView
                     
 // ...
                     // Zone 3: Content (Series List)
@@ -427,7 +430,7 @@ struct FolderContentView: View {
             
             // Then Series
             ForEach(node.series) { series in
-                NavigationLink(destination: BookListView(series: series, libraryName: libraryName)) {
+                NavigationLink(destination: BookListView(series: series, libraryName: libraryName)) { // Fix: Use libraryName from FolderContentView
                     SeriesCard(series: series, cover: seriesCovers[series.id])
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -510,6 +513,7 @@ struct FolderDetailView: View {
                 }
                 .padding()
                 .background(Color.white.opacity(0.1)) // Glassy Header
+                .padding(.top, 80) // Fix: Prevent overlap with MainTabView
                 
                 ScrollView {
                     FolderContentView(
@@ -546,6 +550,7 @@ struct FolderDetailView: View {
             }
         }
         .navigationBarHidden(true)
+        .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         // ALERTS
         .alert("Download Folder?", isPresented: $showFolderDownloadAlert) {
@@ -629,10 +634,6 @@ struct FolderDetailView: View {
     
     // Updated signature to match call site
     private func downloadFolder(_ node: FolderNode, at path: String) {
-        // Calculate parent path for the helper
-        let parentPath = (path as NSString).deletingLastPathComponent
-        let safeParent = parentPath == "/" ? "" : parentPath
-        
         // Fix: Use relative path from the selected node (empty parent)
         // This ensures if we download "Folder/Sub", we get "Sub" at root, not "Folder/Sub".
         let items = FolderUtilities.collectSeriesForDownload(node: node, parentPath: "")
@@ -645,12 +646,13 @@ struct FolderDetailView: View {
     }
 }
 
-// MARK: - Cluster View for Folders
-struct FolderClusterView: View {
+// MARK: - Helper Views for Grid Items (UPDATED)
+
+struct FolderCard: View {
     let node: FolderNode
     var seriesCovers: [String: UIImage]
     
-    // Compute 3 representative images
+    // Covers aggregation
     private var collageImages: [UIImage] {
         var images: [UIImage] = []
         // Try getting covers from direct series
@@ -674,84 +676,109 @@ struct FolderClusterView: View {
         return images
     }
     
-    var body: some View {
-        ZStack {
-            // Base Box Shadow/Shape (Wider)
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(white: 0.2))
-                .shadow(radius: 4)
-                .frame(width: 110, height: 165) // Adjusted for 2:3 tall boxes
-            
-            // Render up to 3 covers in a scattered pile
-            if collageImages.isEmpty {
-                 Image(systemName: "folder.fill")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 70) // Widened
-                    .foregroundColor(.blue)
-            } else {
-                ForEach(Array(collageImages.prefix(3).enumerated()), id: \.offset) { index, img in
-                    Image(uiImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 80, height: 120) // Proportions 2:3
-                        .clipped()
-                        .cornerRadius(4)
-                        .shadow(radius: 2)
-                        // Fan out logic - Adjusted for width
-                        .rotationEffect(.degrees(Double(index - 1) * 8)) 
-                        .offset(x: CGFloat(index - 1) * 12, y: CGFloat(index - 1) * 2)
-                }
-            }
-            
-            // Folder Icon Overlay Badge (Small)
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Image(systemName: "folder.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.blue)
-                        .background(Color.white.clipShape(Circle()))
-                        .padding(4)
-                }
-            }
-            .frame(width: 110, height: 165) // Match new proportions
+    // Use the same Proportional Layout as LibraryImportCard
+    @EnvironmentObject var appState: AppState
+    private let boxContainer = Color(red: 0.2, green: 0.3, blue: 0.45)
+    private let boxLid = Color(white: 0.9)
+    private let handleColor = Color(red: 0.1, green: 0.1, blue: 0.2)
+    
+    // Private re-implementation of LocalFolderCard layout logic
+    private func layoutMetrics(for containerSize: CGSize) -> (graphicSize: CGSize, position: CGPoint) {
+        let baseRefWidth: CGFloat = 140.0
+        let scale = containerSize.width / baseRefWidth
+        
+        let marginH = CGFloat(appState.boxMarginHorizontal) * scale
+        let marginT = CGFloat(appState.boxMarginTop) * scale
+        let marginB = CGFloat(appState.boxMarginBottom) * scale
+        
+        let availableWidth = containerSize.width - (marginH * 2)
+        let availableHeight = containerSize.height - (marginT + marginB)
+        
+        var graphicW = availableWidth
+        let bodyRatio: CGFloat = 0.95
+        var graphicH = (graphicW * bodyRatio) * AppConstants.boxAspectRatio
+        
+        if graphicH > availableHeight {
+            graphicH = availableHeight
+            graphicW = graphicH / (AppConstants.boxAspectRatio * bodyRatio)
         }
+        
+        let finalGraphicW = max(graphicW, 10)
+        let finalGraphicH = max(graphicH, 10)
+        
+        let originX = marginH + (availableWidth - finalGraphicW) / 2
+        let originY = marginT
+        
+        return (CGSize(width: finalGraphicW, height: finalGraphicH), CGPoint(x: originX + finalGraphicW/2, y: originY + finalGraphicH/2))
     }
-}
-
-struct FolderCard: View {
-    let node: FolderNode
-    var seriesCovers: [String: UIImage]
     
     var body: some View {
-        ZStack {
-            // Card background (Uniform with SeriesCard)
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(white: 0.2))
-                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-            
-            VStack {
-                // The Cluster Visualization
-                FolderClusterView(node: node, seriesCovers: seriesCovers)
-                    .frame(height: 140) // Adjusted height constraint
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                let metrics = layoutMetrics(for: geo.size)
+                let finalGraphicW = metrics.graphicSize.width
+                let finalGraphicH = metrics.graphicSize.height
+                let lidHeight = finalGraphicH * 0.22
                 
-                // Name
-                Text(Series.formatSeriesName(node.name))
-                    .font(.caption)
-                    .bold()
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                    .padding(.top, 4)
-                
-                // Subtitle: Series Count
-                Text("\(node.series.count + node.children.reduce(0) { $0 + $1.series.count }) Series")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
-                    .padding(.bottom, 4)
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 6).fill(boxContainer)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    
+                    ZStack(alignment: .top) {
+                         let bodyWidth = finalGraphicW * 0.95
+                         ZStack {
+                             if !collageImages.isEmpty {
+                                 ForEach(Array(collageImages.prefix(3).enumerated()), id: \.offset) { index, img in
+                                     Image(uiImage: img)
+                                         .resizable()
+                                         .aspectRatio(contentMode: .fill)
+                                         .frame(width: bodyWidth, height: finalGraphicH)
+                                         .clipped()
+                                         .rotationEffect(.degrees(Double((index * 5) - 5))) // Subtle fan
+                                         .offset(x: CGFloat((index * 5) - 5))
+                                 }
+                             } else {
+                                 VStack(spacing: 0) {
+                                     Rectangle().fill(boxLid).frame(width: finalGraphicW, height: lidHeight)
+                                     Rectangle().fill(Color.white).frame(width: bodyWidth, height: finalGraphicH - lidHeight)
+                                 }
+                             }
+                         }
+                         .frame(width: bodyWidth, height: finalGraphicH)
+                         .mask(
+                             VStack(spacing: 0) {
+                                 RoundedCorner(radius: 4, corners: [.topLeft, .topRight]).frame(width: finalGraphicW, height: lidHeight)
+                                 Rectangle().frame(width: bodyWidth, height: finalGraphicH - lidHeight)
+                             }
+                         )
+                         
+                         VStack(spacing: 0) {
+                             ZStack(alignment: .bottom) {
+                                 RoundedCorner(radius: 4, corners: [.topLeft, .topRight]).stroke(Color.black, lineWidth: 3)
+                                 Rectangle().fill(LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)).frame(height: 4)
+                             }.frame(width: finalGraphicW, height: lidHeight)
+                             
+                             ZStack {
+                                 Rectangle().stroke(Color.black, lineWidth: 3)
+                                 Rectangle().strokeBorder(Color.gray.opacity(0.5), lineWidth: 1)
+                                 Capsule().fill(handleColor).frame(width: 50, height: 18).padding(.bottom, 50).shadow(radius: 1)
+                             }.frame(width: bodyWidth, height: finalGraphicH - lidHeight)
+                         }
+                    }
+                    .frame(width: finalGraphicW, height: finalGraphicH)
+                    .position(metrics.position)
+                }
             }
-            .padding(8)
+            .aspectRatio(0.7, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            
+            ScrollingText(text: Series.formatSeriesName(node.name), font: .caption.bold(), color: .white)
+                .frame(height: 20)
+                .padding(.top, 10)
+            
+            Text("\(node.series.count + node.children.reduce(0) { $0 + $1.series.count }) Series")
+                .font(.caption2)
+                .foregroundColor(.gray)
         }
     }
 }
@@ -760,25 +787,22 @@ struct SeriesCard: View {
     let series: Series
     let cover: UIImage?
     
+    @EnvironmentObject var appState: AppState
+
     var body: some View {
-        // Container for 3D effect
-        ZStack {
-            // Card background
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(white: 0.2))
-                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+        VStack(spacing: 0) {
+            // Use ComicBoxCard directly for proportional, clean single box
+            ComicBoxCard(coverImage: cover)
+                .aspectRatio(0.7, contentMode: .fit)
+                .frame(maxWidth: .infinity)
             
-            VStack {
-                // Reuse LibraryBoxView for Series (Directory Metaphor)
-                LibraryBoxView(name: Series.formatSeriesName(series.name), coverImage: cover)
-                
-                // Count Badge
-                Text("\(series.booksCount) books")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
-                    .padding(.bottom, 4)
-            }
-            .padding(8)
+            ScrollingText(text: Series.formatSeriesName(series.name), font: .caption.bold(), color: .white)
+                .frame(height: 20)
+                .padding(.top, 10)
+            
+            Text("\(series.booksCount) books")
+                .font(.caption2)
+                .foregroundColor(.gray)
         }
     }
 }

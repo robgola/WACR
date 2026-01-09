@@ -27,7 +27,7 @@ struct Series: Codable, Identifiable, Hashable, Sendable {
                    let titleRange = Range(match.range(at: 2), in: name) {
                     let year = String(name[yearRange])
                     let title = String(name[titleRange])
-                    return "\(title) Vol.\(year)"
+                    return "\(title) Vol. \(year)"
                 }
             }
         }

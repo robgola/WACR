@@ -29,7 +29,7 @@ actor BalloonPipeline {
         var unmatchedGeminiBalloons: [(index: Int, rect: CGRect)] = []
         
         // Stage A: Strict IoU Matching
-        for (gIndex, var gBalloon) in geminiData.balloons.enumerated() {
+        for (gIndex, gBalloon) in geminiData.balloons.enumerated() {
             guard gBalloon.should_translate else { continue }
             
             let gBox = gBalloon.box2D
@@ -64,17 +64,24 @@ actor BalloonPipeline {
                 let r = match.normalizedRect
                 
                 // Update with Precise YOLO Box
-                let updatedBalloon = TranslatedBalloon(
-                    originalText: gBalloon.originalText,
-                    translatedText: gBalloon.translatedText,
-                    should_translate: true,
-                    shape: gBalloon.shape,
-                    box2D: [
-                        Int(r.minY * 1000), Int(r.minX * 1000), Int(r.maxY * 1000), Int(r.maxX * 1000)
-                    ],
-                    centerPoint: nil
-                )
-                print("   - [IoU Match] Linked Gemini text '\(gBalloon.originalText.prefix(10))...' with YOLO box (IoU: \(String(format: "%.2f", bestIoU)))")
+                // Update with Precise YOLO Box
+                // Update with Precise YOLO Box
+                // Update with Precise YOLO Box
+                let updatedBalloon = await MainActor.run {
+                    return TranslatedBalloon(
+                        originalText: gBalloon.originalText,
+                        translatedText: gBalloon.translatedText,
+                        should_translate: true,
+                        shape: gBalloon.shape,
+                        box2D: [
+                            Int(r.minY * 1000), Int(r.minX * 1000), Int(r.maxY * 1000), Int(r.maxX * 1000)
+                        ],
+                        centerPoint: nil
+                    )
+                }
+                
+                // guard let finalBalloon = updatedBalloon else { continue } // Not needed if returning correctly
+                
                 mergedBalloons.append(updatedBalloon)
             } else {
                 // No overlapping match found, save for Stage B
@@ -112,16 +119,19 @@ actor BalloonPipeline {
                     let match = yoloDetections[idx]
                     let r = match.normalizedRect
                     
-                    let updatedBalloon = TranslatedBalloon(
-                        originalText: gBalloon.originalText,
-                        translatedText: gBalloon.translatedText,
-                        should_translate: true,
-                        shape: gBalloon.shape,
-                        box2D: [
-                            Int(r.minY * 1000), Int(r.minX * 1000), Int(r.maxY * 1000), Int(r.maxX * 1000)
-                        ],
-                        centerPoint: nil
-                    )
+                    let updatedBalloon = await MainActor.run {
+                        return TranslatedBalloon(
+                            originalText: gBalloon.originalText,
+                            translatedText: gBalloon.translatedText,
+                            should_translate: true,
+                            shape: gBalloon.shape,
+                            box2D: [
+                                Int(r.minY * 1000), Int(r.minX * 1000), Int(r.maxY * 1000), Int(r.maxX * 1000)
+                            ],
+                            centerPoint: nil
+                        )
+                    }
+                    // guard let finalBalloon = updatedBalloon else { continue }
                     print("   - [Dist Match] Fallback link '\(gBalloon.originalText.prefix(10))...' with closest YOLO box (Dist: \(String(format: "%.2f", minDistance)))")
                     mergedBalloons.append(updatedBalloon)
                 } else {
@@ -157,25 +167,35 @@ actor BalloonPipeline {
     }
     
     /// Refines a single Pre-Calculated Balloon with GrabCut
-    private func refineBalloon(_ balloon: TranslatedBalloon, originalImage: UIImage) async -> TranslatedBalloon {
+    /// Marked nonisolated to allow TRUE parallel execution in TaskGroup (bypassing Actor mailbox)
+    nonisolated func refineBalloon(_ balloon: TranslatedBalloon, originalImage: UIImage) async -> TranslatedBalloon {
         var refined = balloon
-        let rect = balloon.boundingBox // 0-1 Normalized
+        let rect = await MainActor.run { balloon.boundingBox } // 0-1 Normalized
         
-        // GrabCut: Use strict YOLO box as requested by user.
-        // Reverted inflation logic.
+        // INFLATE RECT: YOLO boxes can be tight. GrabCut needs margin to separate FG/BG.
+        // GOLDEN PARAMETER: 10% Expansion. Do not change without user approval.
+        // This ensures the organic shape is not clipped by the bounding box.
+        let w = rect.width
+        let h = rect.height
+        let paddedRect = rect.insetBy(dx: -w * 0.1, dy: -h * 0.1)
         
-        let contour = OpenCVWrapper.refinedBalloonContour(originalImage, textRect: rect)
+        // Clamp to 0-1 to avoid crash
+        let safeRect = paddedRect.intersection(CGRect(x: 0, y: 0, width: 1.0, height: 1.0))
+        
+        let contour = OpenCVWrapper.refinedBalloonContour(originalImage, textRect: safeRect)
         
         // Flatten [NSValue] (CGPoint) to Path
         // GrabCut returns [NSValue<CGPoint>]
-        let points = contour
-        if !points.isEmpty {
-            let cgPoints = points.map { $0.cgPointValue }
+        if !contour.isEmpty {
+            let cgPoints = contour.map { $0.cgPointValue }
             // print("   - [GrabCut] Success: \(cgPoints.count) points for rect \(rect)")
             refined.localPath = Path { p in
                 p.addLines(cgPoints)
                 p.closeSubpath()
             }
+            
+            // v6.2 Persistence: Save raw points so they survive encoding/decoding
+            refined.codablePoints = cgPoints.map { [$0.x, $0.y] }
             
             // Optional: Sample Background Color from center of refined path?
             // For now, white is standard for comics.

@@ -35,7 +35,7 @@ struct ScrollingText: View {
                             }
                         }
                     }
-                    .onChange(of: contentWidth) { _ in
+                    .onChange(of: text) { _, _ in
                         startAnimation()
                     }
                 // Text logic...

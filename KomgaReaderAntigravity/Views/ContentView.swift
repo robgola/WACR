@@ -3,8 +3,13 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     
+    @ObservedObject var localization = LocalizationService.shared
+    
     // 4 Columns Grid (iPad/Desktop/Landscape) - User requested 4 columns
-    let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
+    // 4 Columns Grid (iPad/Desktop/Landscape) - User requested 4 columns
+    var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 30), count: appState.importColumns)
+    }
     
     var body: some View {
         NavigationStack {
@@ -43,7 +48,7 @@ struct ContentView: View {
                                 .shadow(color: .green.opacity(0.5), radius: 5)
                             
                             VStack(alignment: .leading) {
-                                Text("Server Name") // FIXED: Matching Settings Field Label
+                                Text(localization.serverName) // LIMITED: Localized
                                     .font(.caption)
                                     .foregroundColor(.white.opacity(0.8))
                                     .textCase(.uppercase)
@@ -58,14 +63,24 @@ struct ContentView: View {
                             
                             Spacer()
                             
-                            // Status
+                            // Status & Lang Toggle
                             HStack(spacing: 12) {
+                                // Language Toggle
+                                Button(action: { localization.toggleLanguage() }) {
+                                    Text(localization.language)
+                                        .font(.caption.bold())
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Circle().fill(Color.white.opacity(0.1)))
+                                        .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                                }
+                                
                                 HStack(spacing: 6) {
                                     Circle()
                                         .fill(appState.isLoadingLibraries ? Color.yellow : (appState.libraryError != nil ? Color.red : Color.green))
                                         .frame(width: 8, height: 8)
                                         .shadow(radius: 4)
-                                    Text(appState.isLoadingLibraries ? "Connecting" : (appState.libraryError != nil ? "Off-Line" : "On-Line"))
+                                    Text(appState.isLoadingLibraries ? localization.connecting : (appState.libraryError != nil ? localization.offline : localization.online))
                                         .font(.caption)
                                         .bold()
                                         .foregroundColor(appState.isLoadingLibraries ? Color.yellow : (appState.libraryError != nil ? Color.red : Color.green))
@@ -126,51 +141,63 @@ struct ContentView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .shadow(radius: 10)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 20)
+                        .padding(.horizontal)
+                        .padding(.bottom, 20)
+                        .padding(.top, 80) // Clear MainTabView Header
+                        
                     }
-                    .background(Color.clear)
+                    .background(Color.black.edgesIgnoringSafeArea(.all))
                     
                     
                     // MARK: - Zone 2: Libraries Grid
-                    ScrollView {
-                        // Check for empty library list
-                        if appState.isLoadingLibraries && appState.libraries.isEmpty {
-                            VStack {
-                                Spacer(minLength: 50)
-                                ProgressView("Connecting to \(appState.serverName)...")
-                                Spacer()
-                            }
-                        } else if appState.libraries.isEmpty {
-                            VStack(spacing: 20) {
-                                Spacer(minLength: 100)
-                                Image(systemName: "books.vertical.circle")
-                                    .font(.system(size: 60))
-                                    .foregroundColor(.gray)
-                                Text("No libraries found.")
-                                    .font(.title3)
-                                    .foregroundColor(.gray)
-                                Button("Refresh") { appState.fetchLibraries() }
-                                    .buttonStyle(.bordered)
-                            }
-                        } else {
-                            LazyVGrid(columns: columns, spacing: 50) {
-                                ForEach(appState.libraries) { library in
-                                    NavigationLink(value: library) {
-                                        LibraryImportCard(
-                                            libraryName: library.name,
-                                            covers: appState.libraryStackCovers[library.id] ?? []
-                                        )
-                                    }
-                                    .buttonStyle(PlainButtonStyle())
+                    GeometryReader { scrollViewGeo in
+                        ScrollView {
+                            // Check for empty library list
+                            if appState.isLoadingLibraries && appState.libraries.isEmpty {
+                                VStack {
+                                    Spacer(minLength: 50)
+                                    ProgressView("\(localization.connecting) \(appState.serverName)...")
+                                    Spacer()
                                 }
+                                .frame(minHeight: scrollViewGeo.size.height)
+                            } else if appState.libraries.isEmpty {
+                                VStack(spacing: 20) {
+                                    Spacer(minLength: 100)
+                                    Image(systemName: "books.vertical.circle")
+                                        .font(.system(size: 60))
+                                        .foregroundColor(.gray)
+                                    Text(localization.noLibraries)
+                                        .font(.title3)
+                                        .foregroundColor(.gray)
+                                    Button(localization.refresh) { appState.fetchLibraries() }
+                                        .buttonStyle(.bordered)
+                                }
+                                .frame(minHeight: scrollViewGeo.size.height)
+                            } else {
+                                // Center Content Vertically if short
+                                VStack {
+                                    Spacer()
+                                    LazyVGrid(columns: columns, spacing: 50) {
+                                        ForEach(appState.libraries) { library in
+                                            NavigationLink(value: library) {
+                                                LibraryImportCard(
+                                                    libraryName: library.name,
+                                                    covers: appState.libraryStackCovers[library.id] ?? []
+                                                )
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                        }
+                                    }
+                                    .padding(30)
+                                    .padding(.bottom, 60)
+                                    Spacer()
+                                }
+                                .frame(minHeight: scrollViewGeo.size.height)
                             }
-                            .padding(30)
-                            .padding(.bottom, 60)
                         }
-                    }
-                    .refreshable {
-                        appState.fetchLibraries()
+                        .refreshable {
+                            appState.fetchLibraries()
+                        }
                     }
                 }
             }

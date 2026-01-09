@@ -4,14 +4,51 @@ import Combine
 
 class AppState: ObservableObject {
     @Published var isFullScreen: Bool = false
+    @Published var selectedTab: Int = 0
+    
+    // Navigation Control
+    @Published var isInsideFolder: Bool = false
+    @Published var navigateBack: Bool = false
+    
+    // Global Data
+    // Clipboard State
+    enum ClipboardOperation: String {
+        case copy
+        case cut
+    }
+    @Published var clipboardURLs: [URL] = []
+    @Published var clipboardOperation: ClipboardOperation = .copy
     
     @AppStorage("customServerName") var serverName: String = ""
     @AppStorage("serverAddress") var serverAddress: String = ""
     @AppStorage("serverPort") var serverPort: String = ""
     @AppStorage("serverUser") var serverUser: String = ""
     @AppStorage("serverPassword") var serverPassword: String = ""
+    @AppStorage("serverType") var serverType: String = "Komga"
     @AppStorage("geminiApiKey") var geminiApiKey: String = ""
+    @AppStorage("aiServiceType") var aiServiceType: String = "Gemini" // v5.27.0
     @AppStorage("openAiApiKey") var openAiApiKey: String = ""
+    
+    // Web Server Settings
+    @AppStorage("webServerPort") var webServerPort: Int = 59333
+    @AppStorage("webServerUser") var webServerUser: String = "admin"
+    @AppStorage("webServerPassword") var webServerPassword: String = "komga"
+    @Published var isWebServerRunning: Bool = false
+    
+    // Box Style Settings (Persisted)
+    @AppStorage("boxMarginTop") var boxMarginTop: Double = 14.0
+    @AppStorage("boxMarginBottom") var boxMarginBottom: Double = 14.0
+    @AppStorage("boxMarginHorizontal") var boxMarginHorizontal: Double = 0.0
+    @AppStorage("coverFitMode") var coverFitMode: Int = 1 
+    @AppStorage("textYOffset") var textYOffset: Double = 0.0
+    @AppStorage("boxHandleVerticalOffset") var boxHandleVerticalOffset: Double = 0.0 // New
+    
+    // Grid Settings
+    @AppStorage("gridSpacing") var gridSpacing: Double = 20.0
+    
+    // Column Settings
+    @AppStorage("libraryColumns") var libraryColumns: Int = 5
+    @AppStorage("importColumns") var importColumns: Int = 4
     
     var komgaBaseURL: URL {
         URL(string: "https://\(serverAddress):\(serverPort)/api/v1")!

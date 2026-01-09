@@ -55,7 +55,8 @@ class SplashBackgroundService {
             let candidates = allImages.shuffled().prefix(20)
             
             let fileManager = FileManager.default
-            let cacheDir = self.splashCacheURL
+            // Capture URL on Main Thread before using in background loop
+            let cacheDir = await MainActor.run { self.splashCacheURL }
             
             // Clear old cache first? Or just overwrite/add? 
             // Better to clean to avoid stale huge files.
@@ -83,7 +84,6 @@ class SplashBackgroundService {
     nonisolated private func scanForImageURLs() async -> [URL] {
         let fileManager = FileManager.default
         // scan Library (Documents) recursive
-        let docURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         
         // We want to scan actual comics, not just cached unzips?
         // Actually, previous logic scanned Temp directory "reading_...".
@@ -106,15 +106,17 @@ class SplashBackgroundService {
         var collectedURLs: [URL] = []
         let tempURL = fileManager.temporaryDirectory
         
+        
         guard let items = try? fileManager.contentsOfDirectory(at: tempURL, includingPropertiesForKeys: nil) else { return [] }
         
         for item in items where item.lastPathComponent.hasPrefix("reading_") || item.lastPathComponent.hasPrefix("remote_") {
-            if let enumerator = fileManager.enumerator(at: item, includingPropertiesForKeys: nil) {
-                for case let fileURL as URL in enumerator {
-                    let ext = fileURL.pathExtension.lowercased()
-                    if ["jpg", "jpeg", "png", "webp"].contains(ext) {
-                        collectedURLs.append(fileURL)
-                    }
+            // Fix: Use contentsOfDirectory instead of enumerator (which is not async-safe)
+            if let subItems = try? fileManager.contentsOfDirectory(at: item, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                for fileURL in subItems {
+                     let ext = fileURL.pathExtension.lowercased()
+                     if ["jpg", "jpeg", "png", "webp"].contains(ext) {
+                         collectedURLs.append(fileURL)
+                     }
                 }
             }
         }

@@ -33,18 +33,20 @@ actor BalloonDetector {
     }
     
     /// Loads the compiled Core ML model using the Auto-Generated Class
-    private func loadModel() throws {
+    private func loadModel() async throws {
         guard !isModelLoaded else { return }
         
         do {
-            // Xcode generates a class named `comic_speech_bubble_detector` (replacing hyphens with underscores)
-            // We instantiate it directly.
-            let modelConfig = MLModelConfiguration()
-            let generatedModel = try comic_speech_bubble_detector(configuration: modelConfig)
+            // Xcode generates a class named `comic_speech_bubble_detector` init interacts with MainActor
+            let mlModel = try await MainActor.run {
+                let modelConfig = MLModelConfiguration()
+                let generatedModel = try comic_speech_bubble_detector(configuration: modelConfig)
+                return generatedModel.model
+            }
             
-            self.visionModel = try VNCoreMLModel(for: generatedModel.model)
+            self.visionModel = try VNCoreMLModel(for: mlModel)
             self.isModelLoaded = true
-            print("✅ BalloonDetector: Loaded comic_speech_bubble_detector (Auto-Generated Class)")
+            print("✅ BalloonDetector: Loaded comic_speech_bubble_detector")
         } catch {
             print("❌ BalloonDetector: Failed to load model: \(error)")
             throw error
@@ -54,7 +56,7 @@ actor BalloonDetector {
     /// Detects balloons in the provided image using Vision + Core ML
     func detect(in image: UIImage) async throws -> [DetectedBalloon] {
         if !isModelLoaded {
-            try loadModel()
+            try await loadModel()
         }
         
         guard let model = visionModel else {

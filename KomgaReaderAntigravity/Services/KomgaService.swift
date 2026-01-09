@@ -1,5 +1,6 @@
 import Foundation
 import ZIPFoundation
+import UIKit
 
 struct PageWrapper<T: Codable>: Codable {
     let content: [T]
@@ -162,13 +163,13 @@ class KomgaService: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         
         guard let url = components.url else { throw KomgaError.unknown("Invalid URL") }
         
-        print("DEBUG: Fetching Series URL: \(url.absoluteString)")
+
         
         let request = makeRequest(url: url, method: "GET")
         let (data, response) = try await URLSession.shared.data(for: request)
         
         if let httpResponse = response as? HTTPURLResponse {
-            print("DEBUG: Status Code: \(httpResponse.statusCode)")
+            // print("DEBUG: Status Code: \(httpResponse.statusCode)")
         }
         
         // if let jsonString = String(data: data, encoding: .utf8) {
@@ -178,7 +179,7 @@ class KomgaService: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         do {
             let page = try decoder.decode(PageWrapper<Series>.self, from: data)
             let list = page.content
-            print("✅ DEBUG: Successfully Decoded \(list.count) series")
+            // print("✅ DEBUG: Successfully Decoded \(list.count) series")
             
             // Save to cache
             seriesCache[libraryId] = list
@@ -449,20 +450,20 @@ class KomgaService: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     }
     
     func unzipBook(at sourceURL: URL, to destinationURL: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
+        try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true, attributes: nil)
         
-        try fileManager.unzipItem(at: sourceURL, to: destinationURL)
+        try FileManager.default.unzipItem(at: sourceURL, to: destinationURL)
     }
     
     /// Extracts a specific file from the archive to a destination URL
     func extractFile(named fileName: String, from archiveURL: URL, to destinationURL: URL) -> Bool {
-        let fileManager = FileManager.default
-        guard let archive = Archive(url: archiveURL, accessMode: .read) else { return false }
-        
-        guard let entry = archive[fileName] else { return false }
-        
         do {
+            // Force usage of throwing initializer. Note: ZIPFoundation's throwing init does NOT have preferredEncoding in some versions.
+            // We use the one matching the library signature to avoid warnings.
+            let archive: Archive = try Archive(url: archiveURL, accessMode: .read)
+            
+            guard let entry = archive[fileName] else { return false }
+            
             _ = try archive.extract(entry, to: destinationURL)
             return true
         } catch {
@@ -473,7 +474,6 @@ class KomgaService: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     
     // MARK: - Existence Check Helper
     public func isFilePresent(bookName: String, inFolder folderPath: String?) -> Bool {
-        let fileManager = FileManager.default
         let localLibraryURL = getLocalLibraryURL()
         
         var destinationFolder = localLibraryURL
@@ -490,6 +490,6 @@ class KomgaService: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         }
         
         let destinationURL = destinationFolder.appendingPathComponent(filename)
-        return fileManager.fileExists(atPath: destinationURL.path)
+        return FileManager.default.fileExists(atPath: destinationURL.path)
     }
 }

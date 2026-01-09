@@ -7,7 +7,8 @@ struct MarqueeText: View {
     
     var body: some View {
         GeometryReader { geometry in
-            let textWidth = text.widthOfString(usingFont: .preferredFont(forTextStyle: .caption1)) // Estimation
+            // Add 10% Safety Buffer for Bold/Kerning
+            let textWidth = text.widthOfString(usingFont: .preferredFont(forTextStyle: .caption1)) * 1.10
             let isOverflowing = textWidth > geometry.size.width
             
             ZStack(alignment: isOverflowing ? .leading : .center) {
@@ -33,8 +34,16 @@ struct ScrollingTextModifier: ViewModifier {
             .offset(x: offset)
             .onAppear {
                 if isOverflowing {
-                    withAnimation(Animation.linear(duration: Double(textWidth) / 20.0).repeatForever(autoreverses: false)) {
-                        offset = -textWidth - containerWidth // Scroll fully
+                    // Set initial state OFF SCREEN RIGHT
+                    offset = containerWidth
+                    
+                    // Animate to OFF SCREEN LEFT
+                    // Distance = container + text size
+                    let totalDistance = containerWidth + textWidth
+                    let duration = Double(totalDistance) / 20.0 // Adjusted speed constants
+                    
+                    withAnimation(Animation.linear(duration: duration).repeatForever(autoreverses: false)) {
+                        offset = -textWidth
                     }
                 }
             }

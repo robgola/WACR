@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// Represents reading progress for a comic book
 struct ReadingProgress: Codable {
@@ -14,8 +15,10 @@ struct ReadingProgress: Codable {
 }
 
 /// Manages reading progress persistence using UserDefaults
-class ReadingProgressManager {
+class ReadingProgressManager: ObservableObject {
     static let shared = ReadingProgressManager()
+    
+    @Published var lastUpdate: Date = Date() // Trigger for UI updates
     
     private let userDefaultsKey = "com.phnx.komgareader.readingProgress"
     private var progressCache: [String: ReadingProgress] = [:]
@@ -36,6 +39,9 @@ class ReadingProgressManager {
         )
         progressCache[bookId] = progress
         persistProgress()
+        DispatchQueue.main.async {
+            self.lastUpdate = Date()
+        }
     }
     
     /// Get reading progress for a book

@@ -5,6 +5,7 @@ import Vision
 struct ComicReaderView: View {
     let initialBookURL: URL
     let initialBookId: String? // Optional
+    let sourceBookURL: URL? // New: Persistent URL for Sidecar Storage
     
     @State private var activeBookURL: URL
     @State private var activeBookId: String?
@@ -40,6 +41,7 @@ struct ComicReaderView: View {
 
     @State private var showMenu = false // Toggle for overlay menu
     @State private var showDebugLog = false // New Debug Modal
+    @State private var showDeleteConfirmation = false // Delete Cache Alert
     
     // MARK: - New Interactive UI State
     @State private var showShareSheet = false
@@ -59,11 +61,18 @@ struct ComicReaderView: View {
     // Internal Gesture Controls
     @State private var shouldSuppressTap = false
     
-    init(bookURL: URL, bookId: String?) {
+    init(bookURL: URL, bookId: String?, sourceURL: URL? = nil) {
         self.initialBookURL = bookURL
         self.initialBookId = bookId
+        self.sourceBookURL = sourceURL
         _activeBookURL = State(initialValue: bookURL)
         _activeBookId = State(initialValue: bookId)
+        
+        // if let src = sourceURL {
+        //     print("📘 Reader Initialized with SIDE-CAR Source: \(src.path)")
+        // } else {
+        //     print("⚠️ Reader Initialized WITHOUT Side-Car Source (Using Temp: \(bookURL.path))")
+        // }
     }
     
     var body: some View {
@@ -124,36 +133,40 @@ struct ComicReaderView: View {
                         .position(x: geometry.size.width - 26.5, y: 36)
                         
                         // Bottom Right Translate
-                        Button(action: {
-                            if shouldSuppressTap {
-                                shouldSuppressTap = false
-                                return
+                        // Custom Button with precise tap control
+                        ZStack {
+                            Circle()
+                                // Logic: Green Background if ready, Blue if not.
+                                .fill(isTranslationAvailableForCurrentPage ? Color.green : Color.blue.opacity(0.8))
+                                .shadow(radius: 4)
+                            
+                            if isGeminiTranslating {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .frame(width: 24, height: 24)
+                            } else {
+                                Image(systemName: "translate")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.white) // Always white icon
                             }
-                            Task { await performGeminiTranslation() }
-                        }) {
-                            ZStack {
-                                if isGeminiTranslating {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .frame(width: 24, height: 24)
-                                } else {
-                                    Image(systemName: "translate")
-                                        .font(.system(size: 24))
-                                        .foregroundColor(visionBalloons.isEmpty ? .white : .green)
-                                }
-                            }
-                            .frame(width: 60, height: 60)
-                            .background(Circle().fill(Color.blue.opacity(0.8)))
-                            .shadow(radius: 4)
                         }
+                        .frame(width: 60, height: 60)
                         .position(x: geometry.size.width - 40, y: geometry.size.height - 40)
-                        .simultaneousGesture(
-                            LongPressGesture(minimumDuration: 0.8)
-                                .onEnded { _ in
-                                    shouldSuppressTap = true
-                                    Task { await performGeminiTranslation(force: true) }
-                                }
-                        )
+                        // GESTURE HIGARCHY: Double Tap takes precedence
+                        .onTapGesture(count: 2) {
+                            if shouldSuppressTap { return } // General lock
+                            print("👆👆 Double Tap: Force Translation")
+                            shouldSuppressTap = true // Debounce
+                            Task {
+                                await performGeminiTranslation(force: true)
+                                shouldSuppressTap = false
+                            }
+                        }
+                        .onTapGesture(count: 1) {
+                            if shouldSuppressTap { return }
+                            print("👆 Single Tap: Smart Translation")
+                            Task { await performGeminiTranslation() }
+                        }
                     }
                     .allowsHitTesting(true)
                 }
@@ -196,10 +209,15 @@ struct ComicReaderView: View {
                                     
                                     Button(action: { dismiss() }) {
                                         Image(systemName: "chevron.left")
-                                            .font(.system(size: 29))
+                                            .font(.system(size: 22, weight: .semibold))
                                             .foregroundColor(.white)
+                                            .frame(width: 44, height: 44)
+                                            .background(.ultraThinMaterial)
+                                            .clipShape(Circle())
+                                            .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
+                                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                                     }
-                                    .position(x: 26.5, y: 36)
+                                    .position(x: 46, y: 46) // Adjusted position for larger button (22 center + 24 padding)
                                     
                                     // Center Info
                                     VStack(spacing: 4) {
@@ -223,43 +241,14 @@ struct ComicReaderView: View {
                                     }
                                     .position(x: geometry.size.width - 26.5 - 50, y: 36)
                                     
-                                    // Translate (Offset Left of Share)
-                                    Button(action: {
-                                        if shouldSuppressTap {
-                                            shouldSuppressTap = false
-                                            return
-                                        }
-                                        Task { await performGeminiTranslation() }
-                                    }) {
-                                        ZStack {
-                                            if isGeminiTranslating {
-                                                ProgressView()
-                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                            } else {
-                                                Image(systemName: "translate")
-                                                    .font(.system(size: 22))
-                                                    .foregroundColor(visionBalloons.isEmpty ? .white : .green)
-                                            }
-                                        }
-                                        .padding(8)
-                                    }
-                                    .position(x: geometry.size.width - 26.5 - 100, y: 36)
-                                    .simultaneousGesture(
-                                        LongPressGesture(minimumDuration: 0.8)
-                                            .onEnded { _ in
-                                                shouldSuppressTap = true
-                                                Task { await performGeminiTranslation(force: true) }
-                                            }
-                                    )
-                                    
-                                    // Debug Log (Offset Left of Translate)
-                                    Button(action: { showDebugLog = true }) {
-                                        Image(systemName: "ladybug.fill")
+                                    // Trash / Clear Cache (Offset Left of Share)
+                                    Button(action: { showDeleteConfirmation = true }) {
+                                        Image(systemName: "trash")
                                             .font(.system(size: 22))
-                                            .foregroundColor(.white) // Orange for Debug
+                                            .foregroundColor(.red)
                                             .padding(8)
                                     }
-                                    .position(x: geometry.size.width - 26.5 - 150, y: 36)
+                                    .position(x: geometry.size.width - 26.5 - 100, y: 36)
                                     
                                     // Gear (Right 26.5/36 - EXACT MATCH)
                                     Button(action: {
@@ -353,6 +342,23 @@ struct ComicReaderView: View {
                 ShareSheet(activityItems: [pages[currentPageIndex]])
             }
         }
+        .alert("Elimina Cache Fumetto", isPresented: $showDeleteConfirmation) {
+            Button("Annulla", role: .cancel) { }
+            Button("Elimina Tutto", role: .destructive) {
+                // Delete Cache
+                let persistenceId = activeBookId ?? activeBookURL.deletingPathExtension().lastPathComponent
+                let storageURL = sourceBookURL ?? activeBookURL
+                GeminiService.shared.deleteTranslations(forBook: persistenceId, bookURL: storageURL)
+                
+                // Clear UI
+                visionBalloons = []
+                translationMode = .original
+                // Maybe force a reload of page to clear any lingering overlays?
+                // Prefetch will stop because cache is gone.
+            }
+        } message: {
+            Text("Sei sicuro di voler eliminare tutte le traduzioni e le ottimizzazioni per questo fumetto? L'operazione non può essere annullata.")
+        }
         .sheet(isPresented: $showDebugLog) {
             DebugLogView(
                 logContent: GeminiService.shared.lastRawResponse,
@@ -394,7 +400,57 @@ struct ComicReaderView: View {
                     totalPages: pages.count
                 )
             }
+            
+            // v6.5 Smart Prefetching Interaction
+            // "When we turn page... the two following pages must be translated"
+            // We trigger this ONLY if we are in a translation mode OR if we just turned page
+            // The user requirement says "when I am in the new page, the two following pages must be translated"
+            // This implies a continuous reading mode.
+            // Risk: If user flips fast, we queue too many.
+            // Mitigation: The prefetch logic checks cache first and runs sequentially.
+            // We trigger it if translation is "active" (meaning we have results on *previous* page or intended mode)
+            // Actually, the user wants seamless reading. If I am in "Translated Overlay" mode, I expect the next pages to be ready.
+            
+            // We check cached balloons for THIS new page to see if we should stay in translated mode
+            // But we also want to trigger prefetch for *next* pages regardless.
+            
+            // Logic:
+            // 1. If we have translation for CURRENT page (cached), auto-show it (Seamless Reading).
+            // 2. Trigger Prefetch for Next 2.
+            
+            let persistenceId = activeBookId ?? activeBookURL.deletingPathExtension().lastPathComponent
+            let storageURL = sourceBookURL ?? activeBookURL
+            
+            if let cached = GeminiService.shared.loadTranslations(forBook: persistenceId, bookURL: storageURL, pageIndex: newPage) {
+                // Auto-show cached translation -> Current page is READY.
+                self.visionBalloons = cached
+                if translationMode == .original {
+                    // (Optional auto-switch logic left blank per previous)
+                }
+                
+                // Requirement: "se lancio una traduzione devo concludere totalmente quella fase... prima di partire con le successive"
+                // Implies: If I land on page and it IS already translated (Green), THEN I can prefetch.
+                print("✅ Current Page is CACHED (Green). Triggering Look-Ahead.")
+                prefetchNextPages(count: 2)
+            } else {
+                // Not cached. Current page is WHITE.
+                // Do NOT prefetch yet. Wait for user to tap Translate.
+                // When that finishes, `performGeminiTranslation` will trigger prefetch.
+                print("⚪️ Current Page is NOT cached. Waiting for user action before prefetching.")
+            }
         }
+    } // End body
+    
+    // MARK: - UI Helpers
+    
+    // Check if translation is available for current page (UI feedback)
+    private var isTranslationAvailableForCurrentPage: Bool {
+        guard !pages.isEmpty, currentPageIndex < pages.count else { return false }
+        if !visionBalloons.isEmpty { return true } // Already loaded
+        
+        let persistenceId = activeBookId ?? activeBookURL.deletingPathExtension().lastPathComponent
+        let storageURL = sourceBookURL ?? activeBookURL
+        return GeminiService.shared.isTranslationAvailable(forBook: persistenceId, bookURL: storageURL, pageIndex: currentPageIndex)
     }
     
     private func shareCurrentPage() {
@@ -514,8 +570,11 @@ struct ComicReaderView: View {
         // Persistence ID: Use BookID or Filename as fallback
         let persistenceId = activeBookId ?? activeBookURL.deletingPathExtension().lastPathComponent
         
-        // 1. Check Cache
-        if !force, let cachedBalloons = GeminiService.shared.loadTranslations(forBook: persistenceId, pageIndex: currentPageIndex) {
+        // Use Persistent Source URL if available (Local Library), otherwise fallback to active (Streamed/Temp)
+        let storageURL = sourceBookURL ?? activeBookURL
+        
+        // 1. Check Cache (Passing Book URL for Sidecar)
+        if !force, let cachedBalloons = GeminiService.shared.loadTranslations(forBook: persistenceId, bookURL: storageURL, pageIndex: currentPageIndex) {
             print("📦 Using Cached Translations for Page \(currentPageIndex)")
             await MainActor.run {
                 self.visionBalloons = cachedBalloons
@@ -537,9 +596,9 @@ struct ComicReaderView: View {
             // v6.0 Pipeline (YOLO + GrabCut + Gemini)
             let balloons = try await BalloonPipeline.shared.processPage(image: image)
             
-            // 5. Save to Cache
+            // 5. Save to Cache (Sidecar)
             if !balloons.isEmpty {
-                 GeminiService.shared.saveTranslations(balloons, forBook: persistenceId, pageIndex: currentPageIndex)
+                 GeminiService.shared.saveTranslations(balloons, forBook: persistenceId, bookURL: storageURL, pageIndex: currentPageIndex)
             }
             
             await MainActor.run {
@@ -568,67 +627,56 @@ struct ComicReaderView: View {
         }
     }
     
-    // MARK: - Prefetching (v6.2)
+    // MARK: - Prefetching (v6.6 Simplified)
     private func prefetchNextPages(count: Int) {
         guard !pages.isEmpty else { return }
         
-        // Start from next page
         let start = currentPageIndex + 1
         let end = min(currentPageIndex + count, pages.count - 1)
         
         guard start <= end else { return }
         
-        // Use BookID or Filename
+        // Capture value types to avoid self capture issues if possible, though Task inside View is clean.
+        let storageURL = sourceBookURL ?? activeBookURL
         let persistenceId = activeBookId ?? activeBookURL.deletingPathExtension().lastPathComponent
+        let pageURLs = Array(pages) // Copy
         
-        print("🔮 Prefetching pages \(start) to \(end)...")
+        print("🔮 Smart Prefetch Triggered: p\(start) to p\(end)")
         
-        Task.detached(priority: .background) {
+        Task { // Standard Task propagates MainActor context, safer for compiler
             for i in start...end {
-                // 1. Check if already translated (Cache)
-                if GeminiService.shared.loadTranslations(forBook: persistenceId, pageIndex: i) != nil {
-                   print("   - Page \(i) already cached. Skipping.")
-                   continue
-                }
-                
-                // 2. Load Image
-                // We need access to `pages` array. Since this is detached, we capture `pages` copy? 
-                // Alternatively, use an Actor or duplicate logic. 
-                // Since `pages` is [URL], it's safe to capture.
-                // NOTE: We cannot access `self.pages` directly in detached task easily without capturing.
-                // Let's rely on standard Task capturing self strongly or just passing data.
-                // To keep it safe and simple, we'll execute the loop logic inside a Task that inherits context or carefully captures.
-            }
-        }
-        
-        // Better approach: Use local Task (inherits actor context) but yield? 
-        // Or just fire and forget on MainActor? `BalloonPipeline` runs on background threads anyway.
-        // Let's use `Task` which inherits MainActor (since we are in View/MainActor) but the pipeline calls are async.
-        
-        Task {
-            for i in start...end {
-                // Check Cache
-                if GeminiService.shared.loadTranslations(forBook: persistenceId, pageIndex: i) != nil {
+                // 1. Check Cache (Fast fail)
+                if GeminiService.shared.loadTranslations(forBook: persistenceId, bookURL: storageURL, pageIndex: i) != nil {
                     continue
                 }
                 
-                // Load Image
-                let pageURL = pages[i]
-                guard let image = UIImage(contentsOfFile: pageURL.path) else { continue }
+                // 2. Not cached? Translate it.
+                guard i < pageURLs.count else { continue }
+                let pageURL = pageURLs[i]
                 
-                print("   - Prefetching Page \(i) (Hybrid v6.1)...")
+                // Heavy I/O - perform on background thread to be safe
+                // but processPage is async, so we await it.
+                // FIX: Use Data(contentsOf:) to force full image load into memory.
+                // UIImage(contentsOfFile:) is lazy and can cause issues with OpenCV/CoreImage in background tasks (error -17102).
+                guard let data = try? Data(contentsOf: pageURL),
+                      let image = UIImage(data: data) else {
+                    print("   ❌ Prefetch Failed to load image data for Page \(i)")
+                    continue
+                }
+                
+                print("   ⚡️ Prefetching (Translating) Page \(i)...")
                 do {
-                    // Call Pipeline (Background)
+                    // Start Translation
                     let balloons = try await BalloonPipeline.shared.processPage(image: image)
                     if !balloons.isEmpty {
-                        GeminiService.shared.saveTranslations(balloons, forBook: persistenceId, pageIndex: i)
-                        print("   - Page \(i) Prefetch Complete & Saved.")
-                        
-                        // Optional: If we want to aggressively cache images for display, we could do it here,
-                        // but GeminiService only saves JSON. That's fine.
+                        GeminiService.shared.saveTranslations(balloons, forBook: persistenceId, bookURL: storageURL, pageIndex: i)
+                        print("   ✅ Prefetch Page \(i) Saved.")
                     }
+                    
+                    // Small yield
+                    try await Task.sleep(nanoseconds: 100_000_000)
                 } catch {
-                    print("   - Page \(i) Prefetch Failed: \(error)")
+                    print("   ❌ Prefetch Page \(i) Error: \(error)")
                 }
             }
         }
@@ -666,8 +714,21 @@ struct ComicReaderView: View {
         print("Found \(pages.count) pages for \(url.lastPathComponent)")
         
         // Save initial progress (or update lastReadDate) when opening
-        // If we don't have ID, we default to page 0 (set above)
+        // Restore progress if available
         if let bookId = activeBookId, !pages.isEmpty {
+            if let progress = ReadingProgressManager.shared.getProgress(for: bookId) {
+                // Validate page index matches current file count roughly, or just clamp it
+                if progress.currentPage < pages.count {
+                    currentPageIndex = progress.currentPage
+                    print("📖 Resuming Book \(bookId) at page \(currentPageIndex)")
+                } else {
+                    currentPageIndex = 0 // Reset if out of bounds (e.g. file changed)
+                }
+            } else {
+                currentPageIndex = 0
+            }
+            
+            // Mark as accessed (update lastReadDate) without changing page
             ReadingProgressManager.shared.saveProgress(
                 bookId: bookId,
                 currentPage: currentPageIndex,

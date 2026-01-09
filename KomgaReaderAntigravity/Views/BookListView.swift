@@ -91,7 +91,7 @@ struct BookListView: View {
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: isSelectionMode ? "xmark" : "chevron.left")
-                                    Text(isSelectionMode ? "Annulla" : "Indietro") // Localized
+                                    Text(isSelectionMode ? LocalizationService.shared.cancel : LocalizationService.shared.back)
                                 }
                                 .font(.headline)
                                 .foregroundColor(.white)
@@ -112,7 +112,7 @@ struct BookListView: View {
                                     }
                                 }
                             }) {
-                                Text(isSelectionMode ? "Fine" : "Seleziona")
+                                Text(isSelectionMode ? LocalizationService.shared.done : LocalizationService.shared.select)
                                     .font(.headline)
                                     .foregroundColor(.yellow)
                                     .padding(.vertical, 8)
@@ -133,6 +133,7 @@ struct BookListView: View {
                             .allowsHitTesting(false)
                     }
                     .frame(height: 60) // Fixed height
+                    .padding(.top, 80) // Fix: Prevent overlap with MainTabView
                     
                     // Zone 3: Main Scrolling Content
                     
@@ -241,7 +242,7 @@ struct BookListView: View {
                         }) {
                             VStack(spacing: 4) {
                                 Image(systemName: "checkmark.circle.badge.questionmark")
-                                Text("Tutti").font(.caption2).bold()
+                                Text(LocalizationService.shared.all).font(.caption2).bold()
                             }
                             .foregroundColor(.white)
                             .frame(width: 60)
@@ -252,7 +253,7 @@ struct BookListView: View {
                         Button(action: { handleImportRequest() }) {
                             HStack {
                                 Image(systemName: "arrow.down.circle.fill")
-                                Text("Scarica (\(selectedBookIds.count))")
+                                Text("\(LocalizationService.shared.download) (\(selectedBookIds.count))")
                             }
                             .font(.headline)
                             .foregroundColor(.black)
@@ -273,7 +274,7 @@ struct BookListView: View {
                         }) {
                             VStack(spacing: 4) {
                                 Image(systemName: "trash")
-                                Text("Svuota").font(.caption2).bold()
+                                Text(LocalizationService.shared.clear).font(.caption2).bold()
                             }
                             .foregroundColor(.white)
                             .frame(width: 60)
@@ -296,6 +297,7 @@ struct BookListView: View {
             // Background tap logic
         }
         .navigationBarHidden(true)
+        .navigationBarBackButtonHidden(true) 
         .toolbar(.hidden, for: .navigationBar)
         .task { loadBooks() }
         .alert("Import Selected?", isPresented: $showImportConfirmation) {
@@ -582,7 +584,7 @@ struct HeroDetailView: View {
                     // Action Buttons
                     HStack(spacing: 12) {
                          Button(action: onRead) {
-                             Text("Leggi")
+                             Text(LocalizationService.shared.read)
                                .font(.headline)
                                .foregroundColor(.black)
                                .frame(minWidth: 120)
@@ -591,7 +593,7 @@ struct HeroDetailView: View {
                                .cornerRadius(25)
                          }
                          Button(action: onImport) {
-                             Text("Scarica")
+                             Text(LocalizationService.shared.download)
                                .font(.headline)
                                .foregroundColor(.white)
                                .frame(minWidth: 120)
