@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { useSettings } from '../hooks/useSettings';
+import { useAuth } from '../hooks/useAuth';
 import { KomgaService } from '../services/komgaService';
 
 import Toast from '../components/ui/Toast';
@@ -7,7 +7,22 @@ import Toast from '../components/ui/Toast';
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-    const { settings, saveSettings } = useSettings();
+    // Access Shared Auth State
+    const { activeProfile, isAuthenticated } = useAuth();
+
+    // We removed useSettings as it was causing the auth mismatch.
+    // If we need saveSettings for other things, we should migrate them or use a different store.
+    // For now, let's keep the interface compatible but no-op saveSettings or implement it using useAuth?
+    // Actually, saveSettings logic belongs to SettingsPage which now uses useAuth directly.
+    // We will provide dummy compatibility if needed, or update consumers.
+    const settings = activeProfile ? {
+        serverUrl: activeProfile.url,
+        username: activeProfile.username,
+        password: activeProfile.password
+    } : {};
+
+    const saveSettings = () => { console.warn("Legacy saveSettings called. Use useAuth saveProfile."); };
+
     const [komgaService, setKomgaService] = useState(null);
     const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, error
     const [toast, setToast] = useState(null);
@@ -31,18 +46,35 @@ export const AppProvider = ({ children }) => {
         imageCache.current[url] = blobUrl;
     };
 
+    // Initialize Service when Active Profile Changes
     useEffect(() => {
-        if (settings.serverUrl && settings.username && settings.password) {
-            const service = new KomgaService(settings.serverUrl, settings.username, settings.password, addLog);
+        if (activeProfile && activeProfile.url && activeProfile.username) {
+            console.log("🔄 [AppContext] Initializing Service with Profile:", activeProfile.url);
+
+            // 1. Initialize KomgaService (Context Instance for UI helpers)
+            const service = new KomgaService(activeProfile.url, activeProfile.username, activeProfile.password, addLog);
             setKomgaService(service);
 
-            // Auto-validate on mount
+            // 2. Initialize Singleton LibraryManager (Critical for App.jsx and Downloads)
+            // This ensures it has credentials BEFORE App.jsx tries to use it.
+            // Using 'komga' type by default or activeType? Assuming 'komga' for now or logic from Settings
+            // Ideally we should import libraryManager here. It IS singleton.
+            import('../services/LibraryManager').then(({ libraryManager }) => {
+                libraryManager.initialize('komga', {
+                    baseUrl: activeProfile.url,
+                    username: activeProfile.username,
+                    password: activeProfile.password,
+                    // Name is not known yet, but Provider will fetch it!
+                });
+            });
+
+            // Auto-validate
             setConnectionStatus('connecting');
             service.validateConnection()
                 .then(() => setConnectionStatus('connected'))
                 .catch(() => setConnectionStatus('error'));
         }
-    }, [settings]);
+    }, [activeProfile]);
 
     // Listen for Download Errors globally
     useEffect(() => {
@@ -67,7 +99,7 @@ export const AppProvider = ({ children }) => {
 
     // Memoize the value to prevent global re-renders
     const memoizedValue = React.useMemo(() => ({
-        settings, saveSettings,
+        settings, saveSettings, // Compat
         komgaService, connectionStatus, setConnectionStatus,
         showToast, addLog, logs,
         cache, updateCache,
@@ -75,7 +107,7 @@ export const AppProvider = ({ children }) => {
         showTuner, toggleTuner,
         showDebug, setShowDebug,
         showLogs, setShowLogs
-    }), [settings, komgaService, connectionStatus, logs, cache, showTuner, showDebug, showLogs]);
+    }), [activeProfile, komgaService, connectionStatus, logs, cache, showTuner, showDebug, showLogs]);
 
     return (
         <AppContext.Provider value={memoizedValue}>

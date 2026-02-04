@@ -54,7 +54,8 @@ export class KomgaProvider {
                 if (libRes.ok) {
                     const lib = await libRes.json();
                     this.libraryRoot = lib.root.replace(/\\/g, '/');
-                    console.log(`🐛 [KomgaProvider] Normalized Root: ${this.libraryRoot}`);
+                    this.libraryName = lib.name; // Store Name for UI/Downloads
+                    console.log(`🐛 [KomgaProvider] Normalized Root: ${this.libraryRoot}, Name: ${this.libraryName}`);
                 }
 
                 // 2. DUAL FETCH

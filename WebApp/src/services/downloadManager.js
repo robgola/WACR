@@ -176,11 +176,20 @@ export class DownloadManager {
 
         // Publisher / Series or Default
         // Replicating Swift Logic: Path is Library/[LibraryName]/[Series]/[Book]
-        const library = metadata?.libraryName ? metadata.libraryName.replace(/[:/\\?%*|"<>]/g, " ") : "Unknown Library";
-        const series = metadata?.seriesTitle ? metadata.seriesTitle.replace(/[:/\\?%*|"<>]/g, "-") : "Unknown Series";
-
         // Structure: Library/LibraryName/Series/Filename
-        const bookPath = `Library/${library}/${series}/${finalFileName}`;
+
+        let bookPath;
+        if (folderPath) {
+            // Use the path calculated by LibraryManager (includes Library Name + Folder Structure)
+            // Clean explicit separators
+            const cleanFolder = folderPath.replace(/\\/g, '/').replace(/\/$/, '');
+            bookPath = `${cleanFolder}/${finalFileName}`;
+        } else {
+            // Fallback to Metadata-based path
+            const library = metadata?.libraryName ? metadata.libraryName.replace(/[:/\\?%*|"<>]/g, " ") : "Unknown Library";
+            const series = metadata?.seriesTitle ? metadata.seriesTitle.replace(/[:/\\?%*|"<>]/g, "-") : "Unknown Series";
+            bookPath = `Library/${library}/${series}/${finalFileName}`;
+        }
         const thumbnailPath = `Cache/thumbnails/${bookId}.jpg`;
 
         // 2. Save Blob to OPFS

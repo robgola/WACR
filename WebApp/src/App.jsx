@@ -1428,11 +1428,18 @@ const RemoteSeriesList = ({ config }) => {
     const init = async () => {
       setLoadingFS(true);
       try {
+        // 1. Initialize Provider (Tree) & Fetch Metadata internally
+        // Note: LibraryManager is already hydrated with credentials by AppContext
         await libraryManager.provider.initialize(libId);
-        // Assuming GetLibrary works for Komga
-        const lib = await komgaService.getLibrary(libId);
-        setLibraryName(lib.name);
-        setLibraryRoot(lib.root);
+
+        // 2. Retrieve Library Name from Provider (fetched internally)
+        const name = libraryManager.provider.libraryName || "Unknown Library";
+        setLibraryName(name);
+        setLibraryRoot(libraryManager.provider.libraryRoot);
+
+        // 3. Update LibraryManager config with the discovered name
+        // This ensures subsequent downloads use "Library/{Name}/..."
+        libraryManager.config.name = name;
 
         // Restore Path (ID Mode Fix)
         // Ensure legacy filesystem paths don't crash the ID-browse API

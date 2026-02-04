@@ -137,14 +137,23 @@ const SettingsPage = ({ config }) => {
     const buildFullUrl = () => {
         let url = formData.address;
         if (!url) return '';
-        if (url === 'komga-proxy') url = '/komga-proxy';
-        if (!url.startsWith('http') && !url.startsWith('/')) url = 'http://' + url;
 
-        if (formData.port && !url.includes('/komga-proxy')) {
-            // Fix: Strip trailing slash AND existing port
-            url = url.replace(/\/$/, '').replace(/:\d+$/, '');
+        // Ensure protocol if not proxy path
+        if (!url.startsWith('http') && !url.startsWith('/')) {
+            url = 'https://' + url; // Default to https for modern standards
+        }
+
+        // Clean trailing slash
+        url = url.replace(/\/$/, '');
+
+        // If port is specified, FORCE it (Remove old port first)
+        if (formData.port) {
+            // Remove existing port from URL end (e.g. :8080)
+            url = url.replace(/:\d+$/, '');
             url = `${url}:${formData.port}`;
         }
+
+        console.log("🐛 Built URL:", url);
         return url;
     };
 
