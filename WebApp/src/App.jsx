@@ -152,6 +152,9 @@ const SimpleFolderCard = ({ node }) => {
 // HELPER: Local Library Item (Book)
 // -----------------------------------------------------------------------------
 const LocalLibraryItem = ({ item, onBookClick, onDelete, selectionMode, isSelected, onToggleSelect }) => {
+  // DEBUG LOG
+  // console.log(`[Render] Item ${item.name} coverUrl:`, item.coverUrl);
+
   return (
     <div
       className="relative cursor-pointer group"
@@ -175,6 +178,7 @@ const LocalLibraryItem = ({ item, onBookClick, onDelete, selectionMode, isSelect
         // Local items should have coverUrl attached by buildFolderTree/buildOfflineTree
         coverUrl={item.coverUrl}
         variant="book"
+        number={item.metadata?.number || item.metadata?.Number || item.number} // Pass Number
         readingProgress={item.readProgress} // Verify item has this, usually passed from buildOfflineTree?
         isDownloaded={true}
         selectionMode={selectionMode}
@@ -403,8 +407,12 @@ const LocalLibrary = ({ config }) => {
     // Update ref for comparison if needed, but for now just randomize on mount/tree-change
     // Shuffle and pick 10
     const shuffled = [...allBooks].sort(() => 0.5 - Math.random());
-    if (!komgaService) return [];
-    return shuffled.slice(0, 10).map(b => `${komgaService.baseUrl}/books/${b.id}/thumbnail`);
+    // Use local blob if available, else construct URL (only if service exists)
+    return shuffled.slice(0, 10).map(b => {
+      if (b.coverUrl) return b.coverUrl;
+      if (komgaService) return `${komgaService.baseUrl}/books/${b.id}/thumbnail`;
+      return null;
+    }).filter(url => url !== null);
   }, [rootTree, komgaService]); // Depend on rootTree so it updates when library loads
 
 
@@ -567,6 +575,7 @@ const LocalLibrary = ({ config }) => {
       count(tree);
 
       console.log(`DIAGNOSTIC: IDB=${allDownloads.length}, Tree=${treeItems}`);
+
       if (allDownloads.length > 0 && treeItems === 0) {
         showToast(`Error: ${allDownloads.length} items in DB but 0 in Tree!`, "error");
       } else if (allDownloads.length > 0) {
@@ -635,28 +644,48 @@ const LocalLibrary = ({ config }) => {
 
   // Folder Preview Logic: Auto-select first book
   useEffect(() => {
-    if (folderStack.length > 0 && currentFolder?.items?.length > 0) {
-      const first = currentFolder.items[0];
-      if (!previewBook || !currentFolder.items.find(i => i.id === previewBook.id)) {
-        setPreviewBook(first);
+    // Logic: If in a specific Folder OR Specific Library (selectedTab !== "Tutte")
+    // If NO preview book set, set it to the first available item.
+
+    // 1. Get candidate items
+    let candidates = [];
+    if (folderStack.length > 0) {
+      // Deep navigation
+      candidates = currentFolder?.items || [];
+    } else if (selectedTab !== "Tutte") {
+      // Top Level Library View
+      candidates = displayContent.items || [];
+    }
+
+    // 2. Set Preview if needed
+    if (candidates.length > 0) {
+      // Only set if we don't have one (or it's not in the list? No, sticky selection is fine usually, but user wants default)
+      // If we switch tabs, previewBook needs to reset or update.
+      // Let's force update if the current previewBook is NOT in the new list to avoid showing book from Lib A in Lib B preview
+      const isValid = previewBook && candidates.some(i => i.id === previewBook.id);
+
+      if (!previewBook || !isValid) {
+        setPreviewBook(candidates[0]);
       }
     } else {
-      setPreviewBook(null);
+      // No candidates? Clear it unless we are in "Tutte" where history takes over
+      if (selectedTab !== "Tutte" || folderStack.length > 0) {
+        setPreviewBook(null);
+      }
     }
-  }, [currentFolder, folderStack.length]);
+  }, [currentFolder, folderStack.length, selectedTab, displayContent]);
 
   const startReadingPreview = () => {
     if (previewBook) openBook(previewBook);
   };
 
   const handleGridBookClick = (book) => {
-    if (folderStack.length > 0) {
-      // In Folder: Update Preview
+    // If in Folder OR Single Library View (Not "Tutte"), update Preview
+    if (folderStack.length > 0 || selectedTab !== "Tutte") {
       setPreviewBook(book);
     } else {
-      // Root: Open Reader directly
-      // Root: Open Reader directly
-      openBook(book); // Use helper to track history
+      // Root "Tutte" View: Open Reader directly (History view usually doesn't need preview update)
+      openBook(book);
     }
   };
 

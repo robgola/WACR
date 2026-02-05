@@ -261,21 +261,27 @@ export class DownloadManager {
 
         // For Library View, we need covers.
         // Hydrate Covers from OPFS Cache
-        const hydrated = await Promise.all(items.map(async (item) => {
+        // Hydrate Covers from OPFS Cache SEQUENTIALLY to avoid OPFS race conditions/performance issues
+        // The user explicitly requested "processi ben sequenziati" (well sequenced processes) without race.
+        const hydrated = [];
+        for (const item of items) {
             // If legacy item (has blob directly in IDB), use it (no migration implemented here yet)
             // If OPFS item
             if (item.coverOpfsPath) {
-                const coverFile = await opfsManager.readFile(item.coverOpfsPath);
-                if (coverFile) {
-                    item.coverUrl = URL.createObjectURL(coverFile);
-                    item._coverObjectUrl = item.coverUrl; // Marker to revoke later if needed?
+                try {
+                    const coverFile = await opfsManager.readFile(item.coverOpfsPath);
+                    if (coverFile) {
+                        item.coverUrl = URL.createObjectURL(coverFile);
+                        item._coverObjectUrl = item.coverUrl;
+                    } else {
+                        console.warn(`[Hydrate] File missing: ${item.coverOpfsPath}`);
+                    }
+                } catch (e) {
+                    console.warn(`Failed to hydrate cover for ${item.id}`, e);
                 }
-            } else if (item.blob && !item.coverUrl) {
-                // Legacyfallback? usually legacy items had coverUrl? 
-                // We'll leave legacy items as is
             }
-            return item;
-        }));
+            hydrated.push(item);
+        }
 
         return hydrated;
     }

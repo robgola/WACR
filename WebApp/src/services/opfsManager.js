@@ -45,7 +45,13 @@ export class OPFSManager {
         if (this.usePolyfill) {
             const db = await this.dbPromise;
             // Normalize path
-            await db.put('files', blob, path);
+            console.log(`[Polyfill] Saving ${path} (${blob.size} bytes)`);
+            try {
+                await db.put('files', blob, path);
+                console.log(`[Polyfill] Saved ${path}`);
+            } catch (e) {
+                console.error(`[Polyfill] FAILED to save ${path}`, e);
+            }
             return;
         }
 

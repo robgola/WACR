@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
 import AuthImage from './AuthImage';
 import { parseComicInfo } from '../../utils/comicInfo';
 import { formatLibraryTitle } from '../../utils/textUtils';
-
+import { opfsManager } from '../../services/opfsManager'; // Import OPFS Manager (Named Export)
 
 // Add Debug Import
 import { Bug } from 'lucide-react';
@@ -29,13 +29,25 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
     React.useEffect(() => {
         setEnrichedMetadata(null);
 
-        // ALWAYS try to parse if blob is available (User request: prioritizes correctness over perf)
-        // This ensures if IDB has "Default" data, we overwrite it with "Real" XML data
-        if (currentBook.blob) {
-            parseComicInfo(currentBook.blob).then(info => {
+        const loadAndParse = async () => {
+            let blob = currentBook.blob;
+            // If blob not in memory, try to load from OPFS
+            if (!blob && currentBook.opfsPath) {
+                try {
+                    blob = await opfsManager.readFile(currentBook.opfsPath);
+                } catch (e) {
+                    console.warn("Failed to load book for metadata", e);
+                }
+            }
+
+            if (blob) {
+                const info = await parseComicInfo(blob);
                 if (info) setEnrichedMetadata(info);
-            });
-        }
+            }
+        };
+
+        loadAndParse();
+
     }, [currentBook]);
 
     // Defaults
@@ -76,6 +88,7 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                 {/* ... (Background) ... */}
                 <div className="absolute inset-0 z-0 h-full">
                     <AuthImage
+                        key={`bg-${currentBook.id || currentBook.coverUrl}`} // Force remount
                         src={currentBook.coverUrl}
                         className="w-full h-full object-cover opacity-30 blur-xl scale-110"
                     />
@@ -97,6 +110,7 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                         onClick={() => onRead(currentBook)}
                     >
                         <AuthImage
+                            key={currentBook.id || currentBook.coverUrl} // Force remount on change
                             src={currentBook.coverUrl}
                             className="w-full h-full object-cover rounded-md border border-white/20 group-hover/cover:border-yellow-500 transition-colors"
                         />
@@ -117,53 +131,79 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                     {/* Metadata */}
                     {/* Metadata */}
                     {/* Metadata */}
+                    {/* Metadata */}
                     <div
                         className="flex-1 flex flex-col justify-center gap-1.5 pr-8"
                         style={{ marginTop: `${config?.crTextTopMargin ?? 0}px` }}
                     >
-                        {/* 1. SERIES (White, Bold) */}
+                        {/* 1. SERIES (First Line) */}
                         <div className="text-white font-bold text-[22px] leading-tight drop-shadow-md">
                             {(() => {
-                                const s = meta.seriesTitle || meta.series || currentBook.seriesTitle || currentBook.series || "Unknown Series";
-                                const v = meta.volume || meta.v || currentBook.volume;
-                                return v ? `${s} Vol.(${v})` : s;
+                                // Priority: Meta Series > Item Series > Meta Title
+                                const s = meta.seriesTitle || meta.series || currentBook.seriesTitle || currentBook.series || meta.Series || meta.SERIES || "";
+                                const v = meta.volume || meta.v || currentBook.volume || meta.Volume || meta.VOLUME;
+
+                                if (s && v) {
+                                    return `${s} Vol. ${v}`;
+                                }
+                                return s || "";
                             })()}
                         </div>
 
-                        {/* 2. TITLE (White, Italic) */}
+                        {/* 2. TITLE (Second Line) */}
                         <div className="text-white italic font-medium text-[18px] leading-tight drop-shadow-md opacity-90">
-                            {formatLibraryTitle(currentBook.title || currentBook.name || "Untitled")}
+                            {(() => {
+                                // Priority: Meta Title > Item Title > Filename
+                                const t = meta.title || meta.Title || meta.TITLE || currentBook.title || currentBook.name;
+                                return formatLibraryTitle(t || "");
+                            })()}
                         </div>
 
-                        {/* 3. NUMBER (White) */}
-                        {(meta.number || currentBook.number) && (
-                            <div className="text-white font-bold text-[16px] mt-0.5">
-                                #{meta.number || currentBook.number}
-                            </div>
-                        )}
+                        {/* 3. NUMBER (Third Line) */}
+                        {(() => {
+                            const num = meta.number || meta.Number || meta.NUMBER || currentBook.number;
+                            return num ? (
+                                <div className="text-white font-bold text-[16px] mt-0.5">
+                                    #{num}
+                                </div>
+                            ) : null;
+                        })()}
 
                         {/* CREDITS (Writer & Penciller) */}
                         <div className="flex flex-col gap-0.5 mt-2">
-                            {meta?.authors?.find(a => a.role === 'writer')?.name && (
-                                <p className="text-white/60 text-xs truncate">
-                                    <span className="text-white/40 uppercase text-[10px] tracking-wider mr-2 font-bold">Writer:</span>
-                                    {meta.authors.find(a => a.role === 'writer').name}
-                                </p>
-                            )}
-                            {meta?.authors?.find(a => a.role === 'penciller')?.name && (
-                                <p className="text-white/60 text-xs truncate">
-                                    <span className="text-white/40 uppercase text-[10px] tracking-wider mr-2 font-bold">Penciller:</span>
-                                    {meta.authors.find(a => a.role === 'penciller').name}
-                                </p>
-                            )}
+                            {/* 4. WRITER */}
+                            {(() => {
+                                // Check 'writer' or 'Writer' field in authors or direct meta
+                                const w = meta?.authors?.find(a => a.role?.toLowerCase() === 'writer')?.name || meta.Writer || meta.WRITER || meta.writer;
+                                return w ? (
+                                    <p className="text-white/60 text-xs truncate">
+                                        <span className="text-white/40 uppercase text-[10px] tracking-wider mr-2 font-bold">Writer: </span>
+                                        {w}
+                                    </p>
+                                ) : null;
+                            })()}
+
+                            {/* 5. PENCILLER */}
+                            {(() => {
+                                const p = meta?.authors?.find(a => a.role?.toLowerCase() === 'penciller' || a.role?.toLowerCase() === 'penciler')?.name || meta.Penciller || meta.Penciler || meta.PENCILLER || meta.penciller;
+                                return p ? (
+                                    <p className="text-white/60 text-xs truncate">
+                                        <span className="text-white/40 uppercase text-[10px] tracking-wider mr-2 font-bold">Penciller: </span>
+                                        {p}
+                                    </p>
+                                ) : null;
+                            })()}
                         </div>
 
-                        {/* SUMMARY */}
-                        {meta?.summary && (
-                            <p className="text-white/50 text-[11px] leading-relaxed line-clamp-3 mt-2 max-w-xl">
-                                {meta.summary}
-                            </p>
-                        )}
+                        {/* 6. SUMMARY */}
+                        {(() => {
+                            const sum = meta.summary || meta.Summary || meta.SUMMARY;
+                            return sum ? (
+                                <p className="text-white/50 text-[11px] leading-relaxed line-clamp-3 mt-2 max-w-xl">
+                                    {sum}
+                                </p>
+                            ) : null;
+                        })()}
                     </div>
                 </div>
 

@@ -16,7 +16,8 @@ const ComicBox = memo((props) => {
         isSelected = false,
         onToggleSelect,
         onClick,
-        number
+        number,
+        readingProgress // ADDED
     } = props;
 
     // Styles based on Swift LibraryBoxView & User Feedback
@@ -34,12 +35,27 @@ const ComicBox = memo((props) => {
     const hasCovers = displayCovers.length > 0;
     const mainCover = hasCovers ? displayCovers[0] : null;
 
-    // Green Triangle Indicator for Local/Downloaded Items
-    const DownloadIndicator = () => (
-        <div className="absolute top-0 left-0 w-0 h-0 border-t-[40px] border-r-[40px] border-t-green-500 border-r-transparent z-30 pointer-events-none drop-shadow-md">
-            <div className="absolute top-[-36px] left-[2px] w-2 h-2 bg-white rounded-full shadow-sm" />
-        </div>
-    );
+    // Read Progress Indicator (Triangle)
+    // Green = Completed
+    // Yellow = In Progress (page > 0)
+    // Hidden = Not Started
+    const ReadProgressIndicator = () => {
+        if (!readingProgress) return null;
+
+        const isCompleted = readingProgress.completed;
+        const isInProgress = !isCompleted && readingProgress.page > 0;
+
+        if (!isCompleted && !isInProgress) return null;
+
+        const colorClass = isCompleted ? 'border-t-green-500' : 'border-t-yellow-500';
+
+        return (
+            <div className={`absolute top-0 left-0 w-0 h-0 border-t-[40px] border-r-[40px] ${colorClass} border-r-transparent z-30 pointer-events-none drop-shadow-md`}>
+                {/* Optional Dot inside triangle ?? User didn't ask for it, but the old one had it. Keeping it clean or removing dot? */}
+                {/* Old one had a dot. Let's remove it to be cleaner as per "triangolo" request */}
+            </div>
+        );
+    };
 
     // Selection Overlay
     const SelectionOverlay = () => (
@@ -77,8 +93,8 @@ const ComicBox = memo((props) => {
                         borderColor: isSelected ? '#3b82f6' : (color || '#2563eb') // Highligh border if selected
                     }}
                 >
-                    {/* DOWNLOAD INDICATOR */}
-                    {isDownloaded && <DownloadIndicator />}
+                    {/* READ INDICATOR (Was DownloadIndicator) */}
+                    <ReadProgressIndicator />
 
                     {/* SELECTION OVERLAY */}
                     {selectionMode && <SelectionOverlay />}
@@ -124,8 +140,9 @@ const ComicBox = memo((props) => {
                 </div>
             ) : (
                 // BOOK VARIANT (Simple 2D Cover)
-                <div className={`relative w-full aspect-[2/3] flex flex-col shadow-xl rounded overflow-hidden group-hover:scale-105 transition-transform duration-200 ${isSelected ? 'ring-4 ring-blue-500' : ''}`}>
-                    {isDownloaded && <DownloadIndicator />}
+                // ADDED: border-2 and higher opacity to ensure visibility
+                <div className={`relative w-full aspect-[2/3] flex flex-col shadow-xl rounded overflow-hidden group-hover:scale-105 transition-transform duration-200 border-[1.5px] border-white/40 ${isSelected ? 'ring-4 ring-blue-500' : ''}`}>
+                    <ReadProgressIndicator />
                     {selectionMode && <SelectionOverlay />}
                     <AuthImage
                         src={mainCover}
@@ -137,6 +154,7 @@ const ComicBox = memo((props) => {
                     <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition-colors pointer-events-none" />
                 </div>
             )}
+
 
             {/* Metadata Fields (Common for both variants) */}
             <div className="mt-2 text-center w-full px-1 space-y-0.5">

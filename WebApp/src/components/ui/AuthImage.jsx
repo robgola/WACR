@@ -9,6 +9,12 @@ const AuthImage = memo(({ src, alt, className, style }) => {
     const [isVisible, setIsVisible] = useState(false);
     const imgRef = React.useRef(null);
 
+    // Reset state when src changes
+    useEffect(() => {
+        setBlobUrl(null);
+        setError(false);
+    }, [src]);
+
     // Intersection Observer to trigger load only when visible
     useEffect(() => {
         if (blobUrl) return; // Already loaded
@@ -29,12 +35,20 @@ const AuthImage = memo(({ src, alt, className, style }) => {
 
     useEffect(() => {
         // Only load if Visible AND Resource available
-        if (blobUrl || !isVisible || !src || !komgaService) return;
+        // CRITICAL FIX: If it's a local BLOB, we don't need komgaService!
+        const isLocal = src && src.startsWith('blob:');
+        if (blobUrl || !isVisible || !src || (!komgaService && !isLocal)) return;
 
         let active = true;
 
         const load = async () => {
             try {
+                // 0. If src is already a blob URL, use it directly
+                if (src.startsWith('blob:')) {
+                    if (active) setBlobUrl(src);
+                    return;
+                }
+
                 // 1. Check Memory Cache (Instant)
                 if (imageCache.current[src]) {
                     if (active) setBlobUrl(imageCache.current[src]);
@@ -103,6 +117,13 @@ const AuthImage = memo(({ src, alt, className, style }) => {
             style={style}
             loading="lazy"
             decoding="async"
+            onLoad={(e) => {
+                const img = e.target;
+                if (img.naturalWidth > img.naturalHeight) {
+                    // Double-page spread detected: Align to Right (Right Page)
+                    img.style.objectPosition = 'right top';
+                }
+            }}
         />
     );
 });

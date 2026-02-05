@@ -49,18 +49,28 @@ export const buildOfflineTree = (items, explicitFolders = []) => {
 
     // 2. Assign Covers (Bubble up)
     const assignCovers = (node) => {
-        if (node.items.length > 0 && node.items[0].coverUrl) {
-            node.coverUrl = node.items[0].coverUrl;
-            return node.coverUrl;
+        // 1. Check local items (Check ALL items, not just first)
+        const itemWithCover = node.items.find(i => i.coverUrl);
+        if (itemWithCover) {
+            node.coverUrl = itemWithCover.coverUrl;
         }
+
+        // 2. Check children (Process ALL children to ensure they get covers too!)
+        let childCover = null;
         for (const child of node.children) {
-            const childCover = assignCovers(child);
-            if (childCover) {
-                node.coverUrl = childCover;
-                return childCover;
+            const res = assignCovers(child);
+            // If we don't have a cover yet, candidate this child's cover
+            if (res && !childCover) {
+                childCover = res;
             }
         }
-        return null;
+
+        // 3. Adoption
+        if (!node.coverUrl && childCover) {
+            node.coverUrl = childCover;
+        }
+
+        return node.coverUrl;
     };
     assignCovers(root);
 
