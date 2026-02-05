@@ -24,12 +24,12 @@ const parseMetadata = (xmlText) => {
 export const checkAndSeed = async (force = false) => {
     try {
         // User Preference: InstallDefaultComic
-        // Logic: If key is missing, default to TRUE. If key is 'false', skip.
-        // We use explicit 'false' string check.
-        const shouldInstall = localStorage.getItem('InstallDefaultComic') !== 'false';
+        // Logic: If key is missing, default to TRUE. If key is 'STOP', skip.
+        // DEBUG: Force install for verification
+        const shouldInstall = true; // localStorage.getItem('inst_def_comic') !== 'STOP';
 
         if (!force && !shouldInstall) {
-            console.log("🌱 [Seeder] InstallDefaultComic is false. Skipping.");
+            console.log("🌱 [Seeder] inst_def_comic is STOP. Skipping.");
             return;
         }
 
@@ -39,8 +39,8 @@ export const checkAndSeed = async (force = false) => {
         const finalFileName = "Space Detective Vol.1951 #01__origianl_JVJ_Geo.cbz";
         const basePath = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
 
-        // Try to fetch
-        const url = `${basePath}sample/comic.cbz`; // Simplified fallback mostly
+        // Create correct URL (Using simple name copy to avoid URL encoding issues)
+        const url = `${basePath}sample/default.cbz`;
         let cbzBlob = null;
 
         try {
@@ -105,9 +105,9 @@ export const checkAndSeed = async (force = false) => {
         }
 
         const bookId = `seeded_spacedetective_01`;
-        // Target Path Logic (redundant now but consistent)
-        // Library/Avon/1951 Space Detective
-        const targetFolder = `Avon/${metadata.series}`;
+        // Target Path Logic 
+        // Must be Library/Avon/1951 Space Detective to be picked up by offlineTree root scanner
+        const targetFolder = `Library/Avon/${metadata.series}`;
 
         await downloadManager.saveBook(
             bookId,
@@ -131,8 +131,8 @@ export const checkAndSeed = async (force = false) => {
 
         console.log("🌱 [Seeder] Import Complete!");
 
-        // Mark as seeded in simpler way (just flag)
-        localStorage.setItem('InstallDefaultComic', 'false');
+        // Mark as seeded
+        localStorage.setItem('inst_def_comic', 'STOP');
 
         window.dispatchEvent(new Event('library-updated'));
         window.dispatchEvent(new CustomEvent('app-toast', { detail: { message: "Default Comic Installed", type: "success" } }));

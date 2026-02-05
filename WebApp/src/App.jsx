@@ -14,6 +14,7 @@ import { libraryManager } from './services/LibraryManager'; // Universal Manager
 import { KomgaService } from './services/komgaService'; // Corrected import to Class (if needed), or removed if unused.
 // import { komgaService as legacyService } ... Removed invalid named export.
 import { downloadManager } from './services/downloadManager';
+import { opfsManager } from './services/opfsManager';
 import { FolderUtilities } from './utils/folderUtils';
 import { buildOfflineTree } from './utils/offlineTree';
 import { saveImage } from './utils/imageDB';
@@ -58,6 +59,9 @@ const defaultNavConfig = {
   libPillPaddingX: 16,
   libPillHeight: 40,
   librariesBarHeight: 60,
+
+  // Background Opacity
+  bgOpacity: 30, // Default 30% visible (70% transparent)
 
   // Continue Reading Tuner
   crHeight: 285,
@@ -363,9 +367,6 @@ const LocalLibrary = ({ config }) => {
 
     const libs = sourceNodes.map(c => c.name).sort();
 
-    // Inject Avon if not present
-    if (!libs.includes("Avon")) libs.push("Avon");
-
     // Sort again
     libs.sort();
 
@@ -415,6 +416,25 @@ const LocalLibrary = ({ config }) => {
     }).filter(url => url !== null);
   }, [rootTree, komgaService]); // Depend on rootTree so it updates when library loads
 
+
+  // CACHED GRID BACKGROUND (Random from Current View or Fallback)
+  const gridBackgroundCover = useMemo(() => {
+    let cover = null;
+
+    // 1. Try Local Items
+    if (displayContent?.items?.length > 0) {
+      const candidates = displayContent.items.slice(0, 10);
+      const random = candidates[Math.floor(Math.random() * candidates.length)];
+      cover = random?.coverUrl || (random?.id ? `${komgaService?.baseUrl}/books/${random.id}/thumbnail` : null);
+    }
+
+    // 2. Fallback to Global Header Covers (previously loaded randoms)
+    if (!cover && backgroundCovers.length > 0) {
+      cover = backgroundCovers[Math.floor(Math.random() * backgroundCovers.length)];
+    }
+
+    return cover;
+  }, [displayContent.items, backgroundCovers, komgaService]);
 
 
   // --- Context Menu Logic ---
@@ -622,10 +642,14 @@ const LocalLibrary = ({ config }) => {
 
     // Subscribe to changes (e.g. new downloads)
     const unsub = downloadManager.subscribe(() => loadLocal());
-
     // Listen for Seeder updates
     const onLibraryUpdate = () => loadLocal();
     window.addEventListener('library-updated', onLibraryUpdate);
+
+    // FIRST RUN: Install Default Comic (Seeder logic)
+    // Delegated to utils/seeder.js for centralized logic and forceful debugging
+    console.log("🚀 App.jsx: Calling checkAndSeed()...");
+    checkAndSeed();
 
     // Listen for Generic Toasts (e.g. from Seeder)
     const onAppToast = (e) => {
@@ -953,18 +977,27 @@ const LocalLibrary = ({ config }) => {
           ) : (
             /* GRID CONTAINER (GLASS BOX) */
             <div
-              className="relative group rounded-xl overflow-hidden shadow-2xl bg-[#1C1C1E] border border-white/10 transition-all duration-300"
+              className="relative group rounded-xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-300"
               style={{
-                height: `${config?.gridHeight ?? 600}px`,
+                minHeight: `${config?.gridHeight ?? 600}px`,
                 marginTop: `${config?.gridMargin ?? 32}px`,
                 marginLeft: `${config?.gridSideMargin ?? 0}px`,
                 marginRight: `${config?.gridSideMargin ?? 0}px`,
+                backgroundColor: `rgba(28, 28, 30, ${(config?.bgOpacity ?? 30) / 100})`,
+                backdropFilter: 'blur(20px)'
               }}
             >
-              {/* Background Blur */}
-              <div className="absolute inset-0 z-0 pointer-events-none">
-                <div className="absolute inset-0 bg-gradient-to-r from-[#1C1C1E] via-[#1C1C1E]/80 to-transparent" />
-                <div className="absolute inset-0 backdrop-blur-3xl bg-black/20" />
+              {/* Background Scheme matched to Continue Reading: Local Content Background + Gradient */}
+              <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+                {/* 1. Local Background Image (Random from current view - Memoized) */}
+                {gridBackgroundCover && (
+                  <AuthImage
+                    src={gridBackgroundCover}
+                    className="w-full h-full object-cover opacity-70 blur-xl scale-110"
+                  />
+                )}
+                {/* 2. Gradient Overlay - Reduced darkness for better visibility */}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-black/20 to-transparent" />
               </div>
 
               {/* EMPTY STATE / LOADING */}
@@ -998,10 +1031,10 @@ const LocalLibrary = ({ config }) => {
                 }}
               >
                 <div
-                  className="grid transition-all duration-300"
+                  className="grid transition-all duration-300 rounded-xl overflow-hidden"
                   style={{
                     gridTemplateColumns: `repeat(${config?.gridColumns || 5}, minmax(0, 1fr))`,
-                    gap: `${(config?.gap ?? 4) * 5}px`,
+                    gap: `${(config?.gap ?? 4) * 5}px`
                   }}
                 >
                   {/* Folders */}
@@ -1324,17 +1357,23 @@ const RemoteLibrary = ({ config }) => {
             </div>
           ) : (
             // GLASS BOX WRAPPER
+            // GLASS BOX WRAPPER
             <div
-              className="relative group rounded-xl overflow-hidden shadow-2xl bg-[#1C1C1E] border border-white/10 transition-all duration-300"
+              className="relative group rounded-xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-300"
               style={{
                 minHeight: '600px',
-                padding: `${config?.gridInnerPadding ?? 24}px`
+                padding: `${config?.gridInnerPadding ?? 24}px`,
+                backgroundColor: `rgba(28, 28, 30, ${(config?.bgOpacity ?? 30) / 100})`,
+                backdropFilter: 'blur(20px)'
               }}
             >
-              {/* Inner Blur */}
+              {/* Inner Blur - REMOVED or kept? If we want glass effect, we keep backdropFilter on wrapper. 
+                  The inner blur div caused issues? 
+                  Let's keep the inner gradient for depth but remove opaque base if any. 
+              */}
               <div className="absolute inset-0 z-0 pointer-events-none">
-                <div className="absolute inset-0 bg-gradient-to-r from-[#1C1C1E] via-[#1C1C1E]/80 to-transparent" />
-                <div className="absolute inset-0 backdrop-blur-3xl bg-black/20" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#1C1C1E]/50 via-[#1C1C1E]/30 to-transparent" />
+                {/* <div className="absolute inset-0 backdrop-blur-3xl bg-black/20" /> already on wrapper */}
               </div>
 
               <div className="relative z-10 w-full h-full">
@@ -2652,6 +2691,73 @@ const RemoteBookList = ({ config }) => {
 };
 
 // -----------------------------------------------------------------------------
+// HELPER: Performance Optimized Slider
+// -----------------------------------------------------------------------------
+const TunableSlider = ({ control, activeConfig, setActiveConfig }) => {
+  const [localValue, setLocalValue] = useState(activeConfig[control.key] || 0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Sync with global config when not dragging (for resets/external changes)
+  useEffect(() => {
+    if (!isDragging) {
+      setLocalValue(activeConfig[control.key] || 0);
+    }
+  }, [activeConfig[control.key], isDragging]);
+
+  const commitChange = (newValue) => {
+    const safeValue = Math.max(control.min, Math.min(control.max, newValue));
+    setActiveConfig(prev => ({ ...prev, [control.key]: safeValue }));
+    setLocalValue(safeValue);
+  };
+
+  return (
+    <div className="space-y-2 mb-4 last:mb-0">
+      <div className="flex justify-between text-white/70 text-[11px] font-bold uppercase tracking-wide">
+        <span>{control.label}</span>
+        <span className={`font-mono transition-colors ${isDragging ? 'text-yellow-300' : 'text-yellow-500'}`}>
+          {localValue}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => commitChange(localValue - 1)}
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 active:scale-95 transition-all text-white font-bold"
+        >
+          -
+        </button>
+
+        <input
+          type="range"
+          min={control.min} max={control.max}
+          value={localValue}
+          onChange={(e) => {
+            setIsDragging(true);
+            setLocalValue(Number(e.target.value));
+          }}
+          onMouseUp={(e) => {
+            setIsDragging(false);
+            commitChange(Number(e.target.value));
+          }}
+          onTouchEnd={(e) => {
+            setIsDragging(false);
+            commitChange(localValue); // Touch event target value might be flaky, trust state
+          }}
+          className="flex-1 accent-yellow-500 bg-white/10 h-2 rounded-full appearance-none cursor-pointer"
+        />
+
+        <button
+          onClick={() => commitChange(localValue + 1)}
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 active:scale-95 transition-all text-white font-bold"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------------
 // SETTINGS
 // -----------------------------------------------------------------------------
 const Settings = ({ config }) => {
@@ -3150,46 +3256,21 @@ const MainLayout = () => {
                   const isLibrary = !isImport && !isSettings;
 
                   // Helper for Uniform Slider Group
-                  const SliderGroup = ({ title, controls }) => (
-                    <div className="space-y-4 mb-8 bg-white/5 rounded-xl p-4 border border-white/5">
-                      <h4 className="text-white/40 font-bold text-[10px] uppercase mb-4 tracking-wider">{title}</h4>
-                      {controls.map(control => (
-                        <div key={control.key} className="space-y-2 mb-4 last:mb-0">
-                          <div className="flex justify-between text-white/70 text-[11px] font-bold uppercase tracking-wide">
-                            <span>{control.label}</span>
-                            <span className="text-yellow-500 font-mono">{activeConfig[control.key]}</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {/* Decrement Button */}
-                            <button
-                              onClick={() => setActiveConfig(prev => ({ ...prev, [control.key]: Math.max(control.min, (prev[control.key] || 0) - 1) }))}
-                              className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 active:scale-95 transition-all text-white font-bold"
-                            >
-                              -
-                            </button>
-
-                            {/* Slider */}
-                            <input
-                              type="range"
-                              min={control.min} max={control.max}
-                              value={activeConfig[control.key]}
-                              onChange={(e) => setActiveConfig({ ...activeConfig, [control.key]: Number(e.target.value) })}
-                              className="flex-1 accent-yellow-500 bg-white/10 h-2 rounded-full appearance-none cursor-pointer"
-                            />
-
-                            {/* Increment Button */}
-                            <button
-                              onClick={() => setActiveConfig(prev => ({ ...prev, [control.key]: Math.min(control.max, (prev[control.key] || 0) + 1) }))}
-                              className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 active:scale-95 transition-all text-white font-bold"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
+                  const SliderGroup = ({ title, controls }) => {
+                    return (
+                      <div className="space-y-4 mb-8 bg-white/5 rounded-xl p-4 border border-white/5">
+                        <h4 className="text-white/40 font-bold text-[10px] uppercase mb-4 tracking-wider">{title}</h4>
+                        {controls.map(control => (
+                          <TunableSlider
+                            key={control.key}
+                            control={control}
+                            activeConfig={activeConfig}
+                            setActiveConfig={setActiveConfig}
+                          />
+                        ))}
+                      </div>
+                    );
+                  };
 
                   return (
                     <div className="space-y-2">
@@ -3224,6 +3305,9 @@ const MainLayout = () => {
                             { label: 'Height', key: 'gridHeight', min: 200, max: 1200 },
                             { label: 'Side Margin', key: 'gridSideMargin', min: 0, max: 200 },
                             { label: 'Columns', key: 'gridColumns', min: 2, max: 10 },
+                          ]} />
+                          <SliderGroup title="Background & Transparency" controls={[
+                            { label: 'Glass Opacity', key: 'bgOpacity', min: 0, max: 100 },
                           ]} />
                         </>
                       )}

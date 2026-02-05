@@ -82,17 +82,21 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
             )}
 
             <div
-                className="relative group w-full rounded-xl overflow-hidden shadow-2xl bg-[#1C1C1E] border border-white/10 transition-all duration-300"
-                style={{ height: `${height}px` }}
+                className="relative group w-full rounded-xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-300"
+                style={{
+                    height: `${height}px`,
+                    backgroundColor: `rgba(28, 28, 30, ${(config?.bgOpacity ?? 30) / 100})`,
+                    backdropFilter: 'blur(20px)'
+                }}
             >
                 {/* ... (Background) ... */}
                 <div className="absolute inset-0 z-0 h-full">
                     <AuthImage
                         key={`bg-${currentBook.id || currentBook.coverUrl}`} // Force remount
                         src={currentBook.coverUrl}
-                        className="w-full h-full object-cover opacity-30 blur-xl scale-110"
+                        className="w-full h-full object-cover opacity-60 blur-xl scale-110"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-r from-[#1C1C1E] via-[#1C1C1E]/80 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-transparent" />
                 </div>
 
                 {/* Content Container */}
