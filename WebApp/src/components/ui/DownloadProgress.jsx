@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { downloadManager } from '../../services/downloadManager';
+import { downloadService } from '../../services/downloads';
 import { Download, CheckCircle, AlertCircle } from 'lucide-react';
 
 const DownloadProgress = () => {
@@ -19,7 +19,7 @@ const DownloadProgress = () => {
 
     useEffect(() => {
         // Subscribe to manager
-        const unsub = downloadManager.subscribe((newState) => {
+        const unsub = downloadService.subscribe((newState) => {
             setState(newState);
             // Show if downloading or if items remain in queue
             if (newState.isDownloading || newState.queue.length > 0) {

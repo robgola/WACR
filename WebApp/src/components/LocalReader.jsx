@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 import { ChevronLeft, ChevronRight, X, Loader2, Settings } from 'lucide-react';
-import { downloadManager } from '../services/downloadManager';
+import { localLibrary } from '../services/localLibrary';
 
 const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 0 }) => {
     const [pages, setPages] = useState([]);
@@ -10,7 +10,7 @@ const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 
 
     // Notify Parent of Progress
     useEffect(() => {
-        if (pages.length > 0 && onProgressUpdate) {
+        if (pages.length > 0 && onProgressUpdate && currentPage > 0) {
             onProgressUpdate(bookId, currentPage, pages.length);
         }
     }, [currentPage, pages.length, bookId, onProgressUpdate]);
@@ -52,7 +52,7 @@ const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 
             try {
                 setLoading(true);
                 console.log(`Open Local Reader for: ${bookId}`);
-                const bookRecord = await downloadManager.getBook(bookId);
+                const bookRecord = await localLibrary.getBook(bookId);
 
                 if (!bookRecord || !bookRecord.blob) {
                     throw new Error("Book file not found offline.");

@@ -13,7 +13,8 @@ import { useAuth } from './hooks/useAuth'; // NEW AUTH HOOK
 import { libraryManager } from './services/LibraryManager'; // Universal Manager
 import { KomgaService } from './services/komgaService'; // Corrected import to Class (if needed), or removed if unused.
 // import { komgaService as legacyService } ... Removed invalid named export.
-import { downloadManager } from './services/downloadManager';
+import { downloadService } from './services/downloads';
+import { localLibrary } from './services/localLibrary';
 import { opfsManager } from './services/opfsManager';
 import { FolderUtilities } from './utils/folderUtils';
 import { buildOfflineTree } from './utils/offlineTree';
@@ -136,7 +137,7 @@ const SimpleFolderCard = ({ node }) => {
 // -----------------------------------------------------------------------------
 // HELPER: Local Library Item (Book)
 // -----------------------------------------------------------------------------
-const LocalLibraryItem = ({ item, onBookClick, onDelete, selectionMode, isSelected, onToggleSelect }) => {
+const LocalLibraryItem = ({ item, onBookClick, onBookDoubleClick, onDelete, selectionMode, isSelected, onToggleSelect }) => {
   // DEBUG LOG
   // console.log(`[Render] Item ${item.name} coverUrl:`, item.coverUrl);
 
@@ -149,13 +150,23 @@ const LocalLibraryItem = ({ item, onBookClick, onDelete, selectionMode, isSelect
           onToggleSelect && onToggleSelect();
           return;
         }
-        if (onDelete) {
+        if (onDelete && !selectionMode) { // Ensure delete doesn't fire double?
+          // Delete logic is usually explicit button, but here it's click?
+          // "if (onDelete)" block implies check.
+          // Let's preserve logic.
           if (confirm(`Delete "${item.name || item.metadata?.title}"?`)) {
             onDelete(item);
           }
         } else {
           onBookClick(item);
         }
+      }}
+      onDoubleClick={(e) => {
+        if (selectionMode) {
+          e.preventDefault();
+          return;
+        }
+        if (onBookDoubleClick) onBookDoubleClick(item);
       }}
     >
       <ComicBox
@@ -216,7 +227,7 @@ const LocalLibrary = ({ config }) => {
 
   const [selectedTab, setSelectedTab] = useState("Tutte");
   const [bgImage, setBgImage] = useState(null); // Local background state
-  const [previewBook, setPreviewBook] = useState(null); // For Folder Preview Logic
+  const [previewItem, setPreviewItem] = useState(null); // Selected item for Preview Bar
   const [diagLog, setDiagLog] = useState(""); // DIAGNOSTIC STATE
 
   // Reading History (Persisted)
@@ -363,6 +374,11 @@ const LocalLibrary = ({ config }) => {
     }
   }, [rootTree, selectedTab, folderStack, currentFolder]);
 
+  // RESET Preview Item when navigating (folder/tab change)
+  useEffect(() => {
+    setPreviewItem(null);
+  }, [selectedTab, folderStack, currentFolder]);
+
   // Derived Tabs (Libraries)
   const tabs = useMemo(() => {
     if (!rootTree) return ["Tutte", "Avon"]; // Avon default
@@ -398,8 +414,13 @@ const LocalLibrary = ({ config }) => {
 
   // CAROUSEL CONTENT LOGIC
   const carouselContent = useMemo(() => {
-    // 1. Library View (Not "Tutte") -> Preview Logic
-    if (selectedTab !== "Tutte") {
+    // 1. Library View (Not "Tutte") OR Inside Folder -> Preview Logic
+    if (selectedTab !== "Tutte" || folderStack.length > 0) {
+      // OVERRIDE: If user clicked a book, show IT in preview
+      if (previewItem) {
+        return [previewItem];
+      }
+
       let previewBooks = displayContent?.items?.slice(0, 5) || [];
 
       // If no direct books, find some from subfolders
@@ -446,7 +467,7 @@ const LocalLibrary = ({ config }) => {
     // 4. Ultimate Fallback: Random Featured (to avoid empty space/layout shift)
     return featuredBooks;
 
-  }, [selectedTab, displayContent, readingHistory, rootTree, featuredBooks]);
+  }, [selectedTab, displayContent, readingHistory, rootTree, featuredBooks, previewItem]);
 
   // CACHED BACKGROUND COVERS (Random from Library)
   // Use a ref to persist them across renders to avoid flickering, only update if allBooks changes length significantly or explicitly requested
@@ -568,23 +589,28 @@ const LocalLibrary = ({ config }) => {
       targetPath = "";
     }
 
-    console.log(`Pasting ${clipboard.items.length} items to: ${targetPath}`);
-
+    setPasteProcessing(true);
     try {
-      if (clipboard.op === 'cut') {
-        for (const item of clipboard.items) {
-          await downloadManager.moveBook(item.id, targetPath);
-        }
-        setClipboard(null);
-      } else {
-        for (const item of clipboard.items) {
-          await downloadManager.copyBook(item.id, targetPath);
+      const mode = clipboard.mode; // 'copy' or 'move'
+      // Support mixed content types if needed, but assuming books for now
+      for (const item of clipboard.items) {
+        if (item.type === 'book') {
+          if (clipboard.op === 'cut' || mode === 'move') {
+            await localLibrary.moveBook(item.id, targetPath);
+          } else {
+            await localLibrary.copyBook(item.id, targetPath);
+          }
         }
       }
+
+      setClipboard(null); // Always clear for now or depending on logic
+      await refreshLibrary();
       showToast(`Pasted ${clipboard.items.length} items`, "success");
     } catch (e) {
       console.error(e);
-      showToast("Paste failed", "error");
+      showToast("Paste failed: " + e.message, "error");
+    } finally {
+      setPasteProcessing(false);
     }
     setShowMenu(false);
   };
@@ -600,8 +626,7 @@ const LocalLibrary = ({ config }) => {
     else targetPath = stackNames.join("/");
 
     const newPath = targetPath ? `${targetPath}/${name}` : name;
-
-    await downloadManager.createFolder(newPath);
+    await localLibrary.createFolder(newPath);
     setShowMenu(false);
   };
 
@@ -611,9 +636,9 @@ const LocalLibrary = ({ config }) => {
     for (const id of itemsToDelete) {
       if (id.startsWith("folder:")) {
         const path = id.substring(7); // Remove 'folder:' prefix
-        await downloadManager.deleteFolder(path);
+        await localLibrary.deleteFolder(path);
       } else {
-        await downloadManager.deleteBook(id);
+        await localLibrary.deleteBook(id);
       }
     }
 
@@ -634,7 +659,7 @@ const LocalLibrary = ({ config }) => {
     const loadLocal = async () => {
       // DEBUG: Inspect Raw DB
       try {
-        const rawBooks = await downloadManager.getAllDownloads();
+        const rawBooks = await localLibrary.getAllDownloads();
         console.log("DEBUG: RAW IDB CONTENTS:", rawBooks);
         if (rawBooks.length > 0) {
           console.log("DEBUG: First Book FolderPath:", rawBooks[0].folderPath);
@@ -644,8 +669,8 @@ const LocalLibrary = ({ config }) => {
       } catch (e) { console.error("DEBUG: Failed to read IDB", e); }
 
       // 1. Get Tree
-      const allDownloads = await downloadManager.getAllDownloads();
-      const tree = await downloadManager.getLibraryTree();
+      const allDownloads = await localLibrary.getAllDownloads();
+      const tree = await localLibrary.getLibraryTree();
       setRootTree(tree);
 
       // DIAGNOSTIC CHECK
@@ -669,7 +694,7 @@ const LocalLibrary = ({ config }) => {
 
         // Try Cache First
         if (cachedId) {
-          const book = await downloadManager.getBook(cachedId);
+          const book = await localLibrary.getBook(cachedId);
           if (book && book.blob) {
             bgBlobUrl = URL.createObjectURL(book.blob);
           }
@@ -677,7 +702,7 @@ const LocalLibrary = ({ config }) => {
 
         // If no cache or invalid, pick random
         if (!bgBlobUrl) {
-          const allBooks = await downloadManager.getAllDownloads();
+          const allBooks = await localLibrary.getAllDownloads();
           if (allBooks.length > 0) {
             const randomBook = allBooks[Math.floor(Math.random() * allBooks.length)];
             if (randomBook.blob) {
@@ -700,7 +725,7 @@ const LocalLibrary = ({ config }) => {
     loadLocal();
 
     // Subscribe to changes (e.g. new downloads)
-    const unsub = downloadManager.subscribe(() => loadLocal());
+    const unsub = downloadService.subscribe(() => loadLocal());
     // Listen for Seeder updates
     const onLibraryUpdate = () => loadLocal();
     window.addEventListener('library-updated', onLibraryUpdate);
@@ -743,27 +768,35 @@ const LocalLibrary = ({ config }) => {
     // 2. Set Preview if needed
     if (candidates.length > 0) {
       // Only set if we don't have one (or it's not in the list? No, sticky selection is fine usually, but user wants default)
-      // If we switch tabs, previewBook needs to reset or update.
-      // Let's force update if the current previewBook is NOT in the new list to avoid showing book from Lib A in Lib B preview
-      const isValid = previewBook && candidates.some(i => i.id === previewBook.id);
+      // If we switch tabs, previewItem needs to reset or update.
+      // Let's force update if the current previewItem is NOT in the new list to avoid showing book from Lib A in Lib B preview
+      const isValid = previewItem && candidates.some(i => i.id === previewItem.id);
 
-      if (!previewBook || !isValid) {
-        setPreviewBook(candidates[0]);
+      if (!previewItem || !isValid) {
+        setPreviewItem(candidates[0]);
       }
     } else {
       // No candidates? Clear it unless we are in "Tutte" where history takes over
       if (selectedTab !== "Tutte" || folderStack.length > 0) {
-        setPreviewBook(null);
+        setPreviewItem(null);
       }
     }
   }, [currentFolder, folderStack.length, selectedTab, displayContent]);
 
   const startReadingPreview = () => {
-    if (previewBook) openBook(previewBook);
+    if (previewItem) openBook(previewItem);
   };
 
   const handleGridBookClick = (book) => {
-    // ALWAYS open the book when clicked in grid (User Request)
+    // Single Click: Preview (if not Root)
+    if (selectedTab === "Tutte" && folderStack.length === 0) {
+      return; // Do nothing in Root
+    }
+    setPreviewItem(book);
+  };
+
+  const handleGridBookDoubleClick = (book) => {
+    // Double Click: Open
     openBook(book);
   };
 
@@ -1127,6 +1160,7 @@ const LocalLibrary = ({ config }) => {
 
                       onFolderClick={enterFolder}
                       onBookClick={handleGridBookClick}
+                      onBookDoubleClick={handleGridBookDoubleClick}
                     />
                   ))}
                 </div>
@@ -1750,17 +1784,9 @@ const RemoteSeriesList = ({ config }) => {
           const total = books.length;
           let processed = 0;
 
-          // Add composite task for the series
-          downloadManager.addCompositeTask({
-            id: seriesItem.id,
-            name: seriesItem.metadata?.title || seriesItem.name,
-            total: total,
-            progress: 0
-          });
-
           // Queue downloads
           for (const book of books) {
-            const exists = await downloadManager.isDownloaded(book.id);
+            const exists = await localLibrary.isDownloaded(book.id);
             if (!exists) {
               const downloadFn = async () => {
                 const res = await fetch(`${komgaService.baseUrl}/books/${book.id}/file`, { headers: komgaService.headers });
@@ -1824,7 +1850,7 @@ const RemoteSeriesList = ({ config }) => {
                 meta: seriesItem.metadata
               });
 
-              downloadManager.addToQueue(
+              downloadService.addToQueue(
                 book.id,
                 book.metadata?.title || book.name,
                 downloadFn,
@@ -1908,16 +1934,11 @@ const RemoteSeriesList = ({ config }) => {
       }
 
       const batchId = `Download-${Date.now()}`;
-      downloadManager.addCompositeTask({
-        id: batchId,
-        name: `Importing ${targets.length} items`,
-        total: processedList.length,
-        progress: 0
-      });
+      // downloadService handles session stats automatically
 
       let processed = 0;
       for (const item of processedList) {
-        downloadManager.addToQueue(
+        downloadService.addToQueue(
           item.id,
           item.name,
           async () => {
@@ -2372,7 +2393,7 @@ const RemoteBookList = ({ config }) => {
 
 
         // OPTIMIZATION: Bulk check IDB instead of N x Transactions
-        const downloadedIds = await downloadManager.getDownloadedBookIds();
+        const downloadedIds = await localLibrary.getDownloadedBookIds();
 
         const withStatus = data.content.map(b => ({
           ...b,
@@ -2507,7 +2528,7 @@ const RemoteBookList = ({ config }) => {
     console.log(`🐛 [handleDownload] Queueing with -> Lib: "${fullMetadata.libraryName}", Series: "${fullMetadata.seriesTitle}"`);
 
     // Add to Manager Queue (Triggering Global Dialog)
-    downloadManager.addToQueue(
+    downloadService.addToQueue(
       book.id,
       bTitle,
       async () => {
@@ -3138,7 +3159,7 @@ const MainLayout = () => {
   const handleResetStorage = async () => {
     try {
       console.log("💥 INITIALIZING FACTORY RESET...");
-      await downloadManager.reset();
+      await localLibrary.reset();
       localStorage.clear();
       sessionStorage.clear();
 

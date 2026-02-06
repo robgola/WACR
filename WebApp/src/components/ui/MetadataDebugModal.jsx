@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { X, FileCode } from 'lucide-react';
-import { downloadManager } from '../../services/downloadManager';
+import { localLibrary } from '../../services/localLibrary';
 
 const MetadataDebugModal = ({ book, onClose }) => {
     const [xmlContent, setXmlContent] = useState("Loading...");
@@ -18,7 +18,7 @@ const MetadataDebugModal = ({ book, onClose }) => {
             if (!targetBlob) {
                 try {
                     setLoadingBlob(true);
-                    const fullBook = await downloadManager.getBook(book.id);
+                    const fullBook = await localLibrary.getBook(book.id);
                     if (fullBook && fullBook.blob) {
                         targetBlob = fullBook.blob;
                     } else {

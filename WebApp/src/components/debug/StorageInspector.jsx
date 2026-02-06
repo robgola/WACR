@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { downloadManager } from '../../services/downloadManager';
+import { localLibrary } from '../../services/localLibrary';
+import { downloadService } from '../../services/downloads'; // For reset potentially?
 import { ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,7 +12,7 @@ const StorageInspector = ({ onClose }) => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const downloads = await downloadManager.getAllDownloads();
+            const downloads = await localLibrary.getAllDownloads();
             // Map to simplified view
             const mapped = downloads.map(d => ({
                 id: d.id,
@@ -36,7 +37,7 @@ const StorageInspector = ({ onClose }) => {
 
     const handleDelete = async (id) => {
         if (confirm('Delete this item?')) {
-            await downloadManager.deleteBook(id);
+            await localLibrary.deleteBook(id);
             loadData();
         }
     };
@@ -52,7 +53,7 @@ const StorageInspector = ({ onClose }) => {
 
         try {
             setLoading(true);
-            await downloadManager.reset();
+            await localLibrary.reset();
             alert("Storage successfully wiped.");
             onClose(); // Close modal on success
         } catch (e) {

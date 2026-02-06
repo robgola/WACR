@@ -1,11 +1,10 @@
 import { openDB } from 'idb';
-import { buildOfflineTree } from '../utils/offlineTree';
-import { opfsManager } from './opfsManager';
+import { opfsManager } from '../opfsManager';
 
 const DB_NAME = 'acr_downloads_v1';
 const STORE_NAME = 'books';
 
-export class DownloadManager {
+export class DownloadService {
     constructor() {
         this.dbPromise = openDB(DB_NAME, 2, {
             upgrade(db, oldVersion, newVersion, transaction) {
@@ -30,7 +29,6 @@ export class DownloadManager {
         this.sessionFailed = 0;
 
         this.activeDownloads = 0;
-        this.compositeTasks = new Map();
     }
 
     // --- Queue Management ---
@@ -75,26 +73,8 @@ export class DownloadManager {
             this.sessionTotal++;
         }
 
-        this.updateCompositeProgress();
         this.notify();
         this.processQueue();
-    }
-
-    addCompositeTask(task) {
-        this.compositeTasks.set(task.id, { ...task, completed: 0 });
-        this.notify();
-    }
-
-    updateCompositeProgress() {
-        if (!this.currentDownload) return;
-
-        // Find parent task (series)
-        // This logic presumes we can find which series a book belongs to, 
-        // or we just trust the UI updates driven by sessionCompleted?
-        // Actually, App.jsx handles the composite logic mostly via 'download-progress' events 
-        // or simply by watching the session stats. 
-        // But let's restore the placeholder or basic logic if needed.
-        // For now, restoring basic structure to prevent crash.
     }
 
     // Concurrent Queue Processing
@@ -150,7 +130,7 @@ export class DownloadManager {
                 } catch (e) { console.warn("Failed to fetch cover for saving", e); }
             }
 
-            await this.saveBook(item.id, blob, item.name, item.coverUrl, item.folderPath, item.metadata, coverBlob, item.filename);
+            await this.saveBookRef(item.id, blob, item.name, item.coverUrl, item.folderPath, item.metadata, coverBlob, item.filename);
             console.log(`✅ Finished download: ${item.name}`);
             this.sessionCompleted++;
         } catch (error) {
@@ -165,27 +145,19 @@ export class DownloadManager {
         }
     }
 
-    // --- Storage (OPFS + IDB) ---
+    // --- Persistance (Write-Only for Download Service) ---
 
-    async saveBook(bookId, blob, title, originalCoverUrl, folderPath, metadata, coverBlob, filename) {
+    async saveBookRef(bookId, blob, title, originalCoverUrl, folderPath, metadata, coverBlob, filename) {
         const db = await this.dbPromise;
 
         // 1. Determine OPFS Paths
-        // Priority: Provided Filename > Sanitized Title
         const finalFileName = filename || title.replace(/[:/\\?%*|"<>]/g, "-") + ".cbz";
-
-        // Publisher / Series or Default
-        // Replicating Swift Logic: Path is Library/[LibraryName]/[Series]/[Book]
-        // Structure: Library/LibraryName/Series/Filename
 
         let bookPath;
         if (folderPath) {
-            // Use the path calculated by LibraryManager (includes Library Name + Folder Structure)
-            // Clean explicit separators
             const cleanFolder = folderPath.replace(/\\/g, '/').replace(/\/$/, '');
             bookPath = `${cleanFolder}/${finalFileName}`;
         } else {
-            // Fallback to Metadata-based path
             const library = metadata?.libraryName ? metadata.libraryName.replace(/[:/\\?%*|"<>]/g, " ") : "Unknown Library";
             const series = metadata?.seriesTitle ? metadata.seriesTitle.replace(/[:/\\?%*|"<>]/g, "-") : "Unknown Series";
             bookPath = `Library/${library}/${series}/${finalFileName}`;
@@ -195,12 +167,10 @@ export class DownloadManager {
         // 2. Save Blob to OPFS
         await opfsManager.saveFile(bookPath, blob);
 
-        // 3. Save Thumbnail to OPFS (if available)
+        // 3. Save Thumbnail to OPFS
         if (coverBlob) {
             await opfsManager.saveFile(thumbnailPath, coverBlob);
         } else if (originalCoverUrl && originalCoverUrl.startsWith('blob:')) {
-            // If passed as blob url (from local), we need to fetch it to save it
-            // But browser might block fetching blob used in other context? Usually fine.
             try {
                 const res = await fetch(originalCoverUrl);
                 const b = await res.blob();
@@ -208,12 +178,10 @@ export class DownloadManager {
             } catch (e) { console.warn("Could not save blob cover to OPFS", e); }
         }
 
-        // 4. Save Metadata to IDB (NO BLOB)
+        // 4. Save Metadata to IDB
         const bookData = {
             id: bookId,
             title,
-            // coverUrl: Stored only if needed for reference, but real source is OPFS
-            // We store the OPFS path for re-hydration
             opfsPath: bookPath,
             coverOpfsPath: thumbnailPath,
             folderPath: folderPath || "",
@@ -225,137 +193,6 @@ export class DownloadManager {
 
         await db.put(STORE_NAME, bookData);
     }
-
-    async getBook(bookId) {
-        const db = await this.dbPromise;
-        const meta = await db.get(STORE_NAME, bookId);
-        if (!meta) return null;
-
-        // Hydrate Blob from OPFS
-        if (meta.opfsPath) {
-            const file = await opfsManager.readFile(meta.opfsPath);
-            if (file) {
-                meta.blob = file; // Attach for usage
-            } else {
-                console.error(`File missing at ${meta.opfsPath}`);
-            }
-        }
-        return meta;
-    }
-
-    async isDownloaded(bookId) {
-        const db = await this.dbPromise;
-        const item = await db.getKey(STORE_NAME, bookId);
-        return !!item;
-    }
-
-    async getDownloadedBookIds() {
-        const db = await this.dbPromise;
-        const keys = await db.getAllKeys(STORE_NAME);
-        return new Set(keys);
-    }
-
-    async getAllDownloads() {
-        const db = await this.dbPromise;
-        const items = await db.getAll(STORE_NAME);
-
-        // For Library View, we need covers.
-        // Hydrate Covers from OPFS Cache
-        // Hydrate Covers from OPFS Cache SEQUENTIALLY to avoid OPFS race conditions/performance issues
-        // The user explicitly requested "processi ben sequenziati" (well sequenced processes) without race.
-        const hydrated = [];
-        for (const item of items) {
-            // If legacy item (has blob directly in IDB), use it (no migration implemented here yet)
-            // If OPFS item
-            if (item.coverOpfsPath) {
-                try {
-                    const coverFile = await opfsManager.readFile(item.coverOpfsPath);
-                    if (coverFile) {
-                        item.coverUrl = URL.createObjectURL(coverFile);
-                        item._coverObjectUrl = item.coverUrl;
-                    } else {
-                        console.warn(`[Hydrate] File missing: ${item.coverOpfsPath}`);
-                    }
-                } catch (e) {
-                    console.warn(`Failed to hydrate cover for ${item.id}`, e);
-                }
-            }
-            hydrated.push(item);
-        }
-
-        return hydrated;
-    }
-
-    async deleteBook(bookId) {
-        const db = await this.dbPromise;
-        const item = await db.get(STORE_NAME, bookId);
-        if (item) {
-            // Delete from OPFS
-            if (item.opfsPath) await opfsManager.deleteFile(item.opfsPath);
-            if (item.coverOpfsPath) await opfsManager.deleteFile(item.coverOpfsPath);
-
-            // Delete from IDB
-            await db.delete(STORE_NAME, bookId);
-            this.notify();
-        }
-    }
-
-    async reset() {
-        const db = await this.dbPromise;
-        await db.clear(STORE_NAME);
-        await db.clear('folders');
-
-        // Clear OPFS
-        await opfsManager.clearAll();
-
-        this.queue = [];
-        this.currentDownload = null;
-        this.isDownloading = false;
-        this.notify();
-    }
-
-    // --- File Operations ---
-
-    async createFolder(path) {
-        const db = await this.dbPromise;
-        await db.put('folders', { path, createdAt: Date.now() });
-        this.notify();
-    }
-
-    async deleteFolder(path) {
-        const db = await this.dbPromise;
-        await db.delete('folders', path);
-        this.notify();
-    }
-
-    // --- Helpers ---
-    async getLibraryTree() {
-        const items = await this.getAllDownloads();
-        const db = await this.dbPromise;
-        const folders = await db.getAll('folders');
-        return buildOfflineTree(items, folders);
-    }
-    // --- Exposed Methods for Seeding ---
-    async savePage(publisher, series, folderName, filename, blob) {
-        // Construct path: Library/Publisher/Series/FolderName/Filename
-        const path = `Library/${publisher}/${series}/${folderName}/${filename}`;
-        await opfsManager.saveFile(path, blob);
-    }
-
-    async registerSeededBook(metadata) {
-        const db = await this.dbPromise;
-        await db.put(STORE_NAME, {
-            ...metadata,
-            downloadedAt: Date.now(),
-        });
-        this.notify();
-    }
-
-    async saveThumbnail(bookId, blob) {
-        const path = `Cache/thumbnails/${bookId}.jpg`;
-        await opfsManager.saveFile(path, blob);
-        return path;
-    }
 }
 
-export const downloadManager = new DownloadManager();
+export const downloadService = new DownloadService();

@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
-import { downloadManager } from '../services/downloadManager';
+import { localLibrary } from '../services/localLibrary';
+import { opfsManager } from '../services/opfsManager';
 import { parseComicInfo } from './comicInfo';
 
 // Helper to parse ComicInfo.xml
@@ -104,19 +105,34 @@ export const checkAndSeed = async (force = false) => {
             coverBlob = await imageFiles[0].async("blob");
         }
 
+        // Target Path Logic
         const bookId = `seeded_spacedetective_01`;
-        // Target Path Logic 
-        // Must be Library/Avon/1951 Space Detective to be picked up by offlineTree root scanner
-        const targetFolder = `Library/Avon/${metadata.series}`;
+        // We need explicit paths for manual registration
+        // finalFileName reused from above
 
-        await downloadManager.saveBook(
-            bookId,
-            cbzBlob,
-            metadata.title,
-            null,
-            targetFolder,
-            {
-                libraryName: "Avon", // Key for Folder Structure
+        // Construct OPFS Path matching standard structure: Library/LibraryName/Series/Filename
+        // Metadata has libraryName: "Avon"
+        const opfsBookPath = `Library/Avon/${metadata.series}/${finalFileName}`;
+        const opfsCoverPath = `Cache/thumbnails/${bookId}.jpg`;
+
+        // 1. Save Book File
+        await opfsManager.saveFile(opfsBookPath, cbzBlob);
+
+        // 2. Save Cover File
+        if (coverBlob) {
+            await opfsManager.saveFile(opfsCoverPath, coverBlob);
+        }
+
+        // 3. Register in IDB via LocalLibrary
+        const dbEntry = {
+            id: bookId,
+            title: metadata.title,
+            opfsPath: opfsBookPath,
+            coverOpfsPath: opfsCoverPath,
+            folderPath: `Library/Avon/${metadata.series}`, // Parent Folder
+            downloadedAt: Date.now(),
+            metadata: {
+                libraryName: "Avon",
                 title: metadata.title,
                 seriesTitle: metadata.series,
                 number: metadata.number,
@@ -125,9 +141,11 @@ export const checkAndSeed = async (force = false) => {
                 year: metadata.year,
                 authors: parsed?.authors || []
             },
-            coverBlob,
-            finalFileName // filename: Explicitly pass the correct filename
-        );
+            seriesTitle: metadata.series,
+            name: metadata.title
+        };
+
+        await localLibrary.registerSeededBook(dbEntry);
 
         console.log("🌱 [Seeder] Import Complete!");
 

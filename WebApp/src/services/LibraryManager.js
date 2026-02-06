@@ -1,6 +1,5 @@
 import { KomgaProvider } from './providers/KomgaProvider';
 import { YacProvider } from './providers/YacProvider';
-import { downloadManager } from './downloadManager';
 
 export class LibraryManager {
     constructor() {
