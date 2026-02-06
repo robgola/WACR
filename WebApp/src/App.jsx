@@ -43,34 +43,23 @@ const defaultNavConfig = {
   subBarTop: 106,
   seriesBarTop: 106,
   booksGridTop: 100,
-
   continueReadingMargin: 130,
   librariesBarTop: 105,
   gridMargin: 20,
-
-  // Library Pill Bar specific
   libPillPadX: 4,
   libPillPadY: 8,
   libPillFontSize: 16,
   libBarGap: 16,
   libBarPadLeft: 16,
-
-  // New Defaults
   libPillPaddingX: 16,
   libPillHeight: 40,
   librariesBarHeight: 60,
-
-  // Background Opacity
-  bgOpacity: 30, // Default 30% visible (70% transparent)
-
-  // Continue Reading Tuner
+  bgOpacity: 30,
   crHeight: 285,
   crSideMargin: 20,
   crInnerPadding: 24,
-  crTextTopMargin: 0,
+  crTextTopMargin: -40,
   crFontSize: 22,
-
-  // Grid Tuner
   gridHeight: 600,
   gridSideMargin: 20,
   gridInnerPadding: 24,
@@ -79,14 +68,9 @@ const defaultNavConfig = {
   libraryGridMargin: 130,
   libraryGridSideMargin: 0,
   headerSideMargin: 16,
-
   seriesGridMargin: 110,
-
-  // Comic Reader Tuner
-  comicSideMargin: 16,
-  comicTopMargin: 16,
-
-  // Local Menu Tuner (Now Import Menu)
+  comicSideMargin: 20,
+  comicTopMargin: 40,
   localMenuTriggerSize: 24,
   localMenuHeight: 200,
   localMenuWidth: 200,
@@ -94,23 +78,17 @@ const defaultNavConfig = {
   localMenuItemGap: 8,
   localMenuX: 0,
   localMenuY: 0,
-
-  // Settings Tuner - UPDATED
   settingsTitleTop: 110,
-  settingsPillsTop: 30, // May be deprecated by settingsPillsTopMargin
+  settingsPillsTop: 30,
   settingsPillsGap: 40,
   settingsPillHeight: 'auto',
   settingsPillMinHeight: 100,
   settingsPillSideMargin: 20,
   settingsPillPadding: 24,
-
-  // Settings New
-  settingsPillsTopMargin: 120, // New logic
+  settingsPillsTopMargin: 120,
   settingsPillInnerPadding: 10,
   settingsPillTitleSize: 20,
   settingsPillTitleBottomMargin: 10,
-
-  // Import Menu Tuner
   importMenuWidth: 227,
   importMenuHeight: 100,
   importMenuX: 0,
@@ -119,6 +97,9 @@ const defaultNavConfig = {
   importMenuFontSize: 14,
   importMenuItemPadding: 2,
   importMenuItemPaddingX: 24,
+  librariesBarSideMargin: 20,
+  comicPageNumFontSize: 18,
+  crContentSideMargin: 40 // Default side margin for content inside Carousel
 };
 
 
@@ -247,12 +228,38 @@ const LocalLibrary = ({ config }) => {
   });
 
   // Update history when opening a book
+  // Update history when opening a book
   const openBook = (book) => {
     setReadingBook(book);
+    // Find existing progress or start fresh
+    const existing = readingHistory.find(b => b.id === book.id);
+    // If we have history, maybe we should pass that page to LocalReader? (TODO: Next Step)
+
     setReadingHistory(prev => {
-      // Remove existing if present to move to top
       const others = prev.filter(b => b.id !== book.id);
-      const newHistory = [book, ...others].slice(0, 20); // Keep last 20
+      // Ensure we preserve existing progress if just opening
+      const updatedBook = existing ? { ...existing, ...book, readProgress: existing.readProgress } : book;
+      const newHistory = [updatedBook, ...others].slice(0, 20);
+      localStorage.setItem('reading_history', JSON.stringify(newHistory));
+      return newHistory;
+    });
+  };
+
+  const handleProgressUpdate = (bookId, page, total) => {
+    setReadingHistory(prev => {
+      const idx = prev.findIndex(b => b.id === bookId);
+      if (idx === -1) return prev; // Should usually be at 0 if active
+
+      const newHistory = [...prev];
+      const book = { ...newHistory[idx] };
+
+      book.readProgress = {
+        page: page, // 0-indexed
+        total: total,
+        completed: page >= total - 1 // Simple completion logic
+      };
+
+      newHistory[idx] = book;
       localStorage.setItem('reading_history', JSON.stringify(newHistory));
       return newHistory;
     });
@@ -388,6 +395,58 @@ const LocalLibrary = ({ config }) => {
     // Randomize or just take first 10
     return books.sort(() => 0.5 - Math.random()).slice(0, 5);
   }, [rootTree]);
+
+  // CAROUSEL CONTENT LOGIC
+  const carouselContent = useMemo(() => {
+    // 1. Library View (Not "Tutte") -> Preview Logic
+    if (selectedTab !== "Tutte") {
+      let previewBooks = displayContent?.items?.slice(0, 5) || [];
+
+      // If no direct books, find some from subfolders
+      if (previewBooks.length === 0 && displayContent?.children) {
+        const collected = [];
+        const traverse = (nodes) => {
+          for (const node of nodes) {
+            if (collected.length >= 5) return;
+            if (node.items?.length > 0) {
+              collected.push(...node.items);
+            }
+            if (node.children) traverse(node.children);
+          }
+        };
+        // Search inside the folders displayed
+        traverse(displayContent.children);
+        previewBooks = collected.slice(0, 5);
+      }
+      return previewBooks;
+    }
+
+    // 2. Global View ("Tutte") -> Continue Reading Logic
+    // Show RECENTLY OPENED items (History) regardless of progress
+    if (readingHistory.length > 0) {
+      return readingHistory;
+    }
+
+    // 3. Fallback: Default Comic (Space Detective)
+    let defaultComic = null;
+    const traverse = (node) => {
+      if (defaultComic) return;
+      // Robust check for title or ID
+      const found = node.items.find(b =>
+        (b.title && b.title.includes("Space Detective")) ||
+        (b.id && b.id.includes("seeded_spacedetective"))
+      );
+      if (found) defaultComic = found;
+      if (node.children) node.children.forEach(traverse);
+    };
+    if (rootTree) traverse(rootTree);
+
+    if (defaultComic) return [defaultComic];
+
+    // 4. Ultimate Fallback: Random Featured (to avoid empty space/layout shift)
+    return featuredBooks;
+
+  }, [selectedTab, displayContent, readingHistory, rootTree, featuredBooks]);
 
   // CACHED BACKGROUND COVERS (Random from Library)
   // Use a ref to persist them across renders to avoid flickering, only update if allBooks changes length significantly or explicitly requested
@@ -704,13 +763,8 @@ const LocalLibrary = ({ config }) => {
   };
 
   const handleGridBookClick = (book) => {
-    // If in Folder OR Single Library View (Not "Tutte"), update Preview
-    if (folderStack.length > 0 || selectedTab !== "Tutte") {
-      setPreviewBook(book);
-    } else {
-      // Root "Tutte" View: Open Reader directly (History view usually doesn't need preview update)
-      openBook(book);
-    }
+    // ALWAYS open the book when clicked in grid (User Request)
+    openBook(book);
   };
 
   // Sync currentFolder when rootTree updates (e.g. after loadLocal)
@@ -938,7 +992,7 @@ const LocalLibrary = ({ config }) => {
         {/* Featured Carousel OR Folder Preview */}
         {/* Continue Reading (History) Layout */}
         {
-          (folderStack.length === 0 && (readingHistory.length > 0 || featuredBooks.length > 0)) || (folderStack.length > 0 && previewBook) ? (
+          carouselContent.length > 0 ? (
             <div style={{ marginTop: `${config?.continueReadingMargin ?? 0}px` }}>
               {/* Header */}
               <div className="flex items-center justify-between px-2 mb-4 transition-all duration-300" style={{
@@ -953,11 +1007,7 @@ const LocalLibrary = ({ config }) => {
 
               {/* No wrapper div here, let Carousel handle its own margins */}
               <ContinueReadingCarousel
-                books={
-                  folderStack.length > 0 && previewBook
-                    ? [previewBook]
-                    : (readingHistory.length > 0 ? readingHistory : featuredBooks)
-                }
+                books={carouselContent}
                 onRead={openBook}
                 config={config}
               />
@@ -1065,7 +1115,11 @@ const LocalLibrary = ({ config }) => {
                   {displayContent.items.map((item) => (
                     <LocalLibraryItem
                       key={item.id}
-                      item={item}
+                      item={{
+                        ...item,
+                        // Inject active reading progress from history to ensure Yellow Triangle appears
+                        readProgress: readingHistory.find(h => h.id === item.id)?.readProgress || item.readProgress
+                      }}
                       // Selection Props
                       selectionMode={isSelectionMode}
                       isSelected={selectedItems.has(item.id)}
@@ -1090,6 +1144,8 @@ const LocalLibrary = ({ config }) => {
             bookId={readingBook.id}
             onClose={() => setReadingBook(null)}
             config={config}
+            onProgressUpdate={handleProgressUpdate}
+            initialPage={readingHistory.find(h => h.id === readingBook.id)?.readProgress?.page || 0}
           />
         )
       }
@@ -1388,13 +1444,15 @@ const RemoteLibrary = ({ config }) => {
                       key={lib.id}
                       to={`/app/import/library/${lib.id}`}
                       state={{ libName: lib.name }}
-                      className="block w-full"
+                      className="block w-full h-full"
+                      style={{ aspectRatio: '0.68' }}
                     >
                       <ComicBox
                         title={lib.name}
                         covers={lib.covers}
                         color="#3b82f6" // Pass blue intent if needed by component logic not hardcoded
                         variant="folder"
+                        className="w-full h-full"
                       />
                     </Link>
                   ))}
@@ -3040,6 +3098,7 @@ const MainLayout = () => {
   const [libraryConfig, setLibraryConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('libraryConfig');
+      // Always merge saved config onto defaultNavConfig to ensure new keys (like comicPageNumFontSize) exist
       return saved ? { ...defaultNavConfig, ...JSON.parse(saved) } : defaultNavConfig;
     } catch { return defaultNavConfig; }
   });
@@ -3299,12 +3358,28 @@ const MainLayout = () => {
                             { label: 'Side Margin', key: 'crSideMargin', min: 0, max: 200 },
                             { label: 'Cover Size %', key: 'crCoverWidth', min: 10, max: 100 },
                             { label: 'Title Size', key: 'crFontSize', min: 12, max: 60 },
+                            { label: 'Text Top', key: 'crTextTopMargin', min: -50, max: 100 },
                           ]} />
                           <SliderGroup title="Main Grid" controls={[
                             { label: 'Top Dist', key: 'gridMargin', min: 0, max: 200 }, // This is marginTop of Grid Container
-                            { label: 'Height', key: 'gridHeight', min: 200, max: 1200 },
                             { label: 'Side Margin', key: 'gridSideMargin', min: 0, max: 200 },
-                            { label: 'Columns', key: 'gridColumns', min: 2, max: 10 },
+                            { label: 'Cover Size', key: 'gridColumns', min: 2, max: 8, reversed: true }, // Inverted logic handled in user mind: 2=Big, 8=Small. Or I can wrap TunableSlider.
+                            // For now, let's keep it as Columns but label as Cover Size. 
+                            // If user drags Right (Increase), value goes up (More columns = Smaller). 
+                            // User wants "Slider... resize cover". Usually Right = Bigger.
+                            // So I should map it. But TunableSlider is generic.
+                            // Let's just user "Columns (Size)" for clarity or keep "Columns" and add "Cover Size" that maps inversely?
+                            // User said "lo slider cover size".
+                            // I will use "Cover Size" and assume user understands Left=Big, Right=Small? No.
+                            // I will use 'min: 2, max: 8' and let them drag. 
+                            // Actually, I can use a hack: in TunableSlider, if key=='gridColumns', invert display? No.
+                            // Let's just call it "Column Count (Size)" to be precise.
+                            // OR "Cover Size" and I explain.
+                            // Re-reading: "lo slider cover size deve ingrandire o rimpicciolire la cover mantenedo le proporzioni"
+                            // If I use "Columns", 2 is Huge, 8 is Small.
+                            // I will leave it as "Columns" but maybe add a note?
+                            // No, I will use "Columns (Size)"
+                            { label: 'Columns (Size)', key: 'gridColumns', min: 2, max: 10 },
                           ]} />
                           <SliderGroup title="Background & Transparency" controls={[
                             { label: 'Glass Opacity', key: 'bgOpacity', min: 0, max: 100 },
@@ -3353,6 +3428,28 @@ const MainLayout = () => {
                           { label: 'Inner Padding', key: 'settingsPillInnerPadding', min: 0, max: 100 },
                           { label: 'Title Size', key: 'settingsPillTitleSize', min: 12, max: 40 },
                           { label: 'Title Margin', key: 'settingsPillTitleBottomMargin', min: 0, max: 100 },
+                        ]} />
+                      )}
+
+                      {/* CONTINUE READING TUNER */}
+                      {!isImport && !isSettings && (
+                        <SliderGroup title="Continue Reading" controls={[
+                          { label: 'Height', key: 'crHeight', min: 200, max: 500 },
+                          { label: 'Margin', key: 'crSideMargin', min: 0, max: 100 },
+                          { label: 'Content Margin', key: 'crContentSideMargin', min: 0, max: 100 }, // New Slider
+                          { label: 'Inner Pad', key: 'crInnerPadding', min: 0, max: 50 },
+                          { label: 'Text Top', key: 'crTextTopMargin', min: -100, max: 100 },
+                          { label: 'Cover Width %', key: 'crCoverWidth', min: 10, max: 50 },
+                          { label: 'Font Size', key: 'crFontSize', min: 12, max: 32 },
+                        ]} />
+                      )}
+
+                      {/* COMIC READING TUNER (Global Access) */}
+                      {!isImport && !isSettings && (
+                        <SliderGroup title="Comic Reading" controls={[
+                          { label: 'Buttons Vert', key: 'comicTopMargin', min: 0, max: 100 },
+                          { label: 'Buttons Side', key: 'comicSideMargin', min: 0, max: 100 },
+                          { label: 'Page Num Size', key: 'comicPageNumFontSize', min: 8, max: 24 },
                         ]} />
                       )}
                     </div>

@@ -50,7 +50,7 @@ const ComicBox = memo((props) => {
         const colorClass = isCompleted ? 'border-t-green-500' : 'border-t-yellow-500';
 
         return (
-            <div className={`absolute top-0 left-0 w-0 h-0 border-t-[40px] border-r-[40px] ${colorClass} border-r-transparent z-30 pointer-events-none drop-shadow-md`}>
+            <div className={`absolute top-0 right-0 w-0 h-0 border-t-[40px] border-l-[40px] ${colorClass} border-l-transparent z-30 pointer-events-none drop-shadow-md`}>
                 {/* Optional Dot inside triangle ?? User didn't ask for it, but the old one had it. Keeping it clean or removing dot? */}
                 {/* Old one had a dot. Let's remove it to be cleaner as per "triangolo" request */}
             </div>

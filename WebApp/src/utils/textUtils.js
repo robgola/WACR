@@ -21,7 +21,7 @@ export const formatLibraryTitle = (title) => {
     if (match) {
         // match[1] is Year
         // match[2] is the rest (Name)
-        return `${match[2]} Vol.(${match[1]})`;
+        return `${match[2]} Vol. ${match[1]}`;
     }
 
     return title;

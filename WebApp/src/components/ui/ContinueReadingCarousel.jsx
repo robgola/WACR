@@ -54,6 +54,7 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
     const height = config?.crHeight ?? 300;
     const margin = config?.crSideMargin ?? 0;
     const innerPadding = config?.crInnerPadding ?? 24;
+    const contentSideMargin = config?.crContentSideMargin ?? 40; // New default
 
     const handleNext = () => {
         setCurrentIndex((prev) => (prev + 1) % books.length);
@@ -63,7 +64,7 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
         setCurrentIndex((prev) => (prev - 1 + books.length) % books.length);
     };
 
-    // ... (rest of render until return)
+    if (!currentBook) return null;
 
     return (
         <div
@@ -102,7 +103,12 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                 {/* Content Container */}
                 <div
                     className="relative z-10 flex items-center h-full gap-6 transition-all duration-300"
-                    style={{ padding: `${innerPadding}px` }}
+                    style={{
+                        paddingTop: `${innerPadding}px`,
+                        paddingBottom: `${innerPadding}px`,
+                        paddingLeft: `${contentSideMargin}px`,
+                        paddingRight: `${contentSideMargin}px`
+                    }}
                 >
                     {/* Cover Image */}
                     <div
@@ -130,11 +136,6 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                         </button>
                     </div>
 
-                    {/* Metadata ... (rest of code) ... */}
-
-                    {/* Metadata */}
-                    {/* Metadata */}
-                    {/* Metadata */}
                     {/* Metadata */}
                     <div
                         className="flex-1 flex flex-col justify-center gap-1.5 pr-8"
@@ -144,8 +145,14 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                         <div className="text-white font-bold text-[22px] leading-tight drop-shadow-md">
                             {(() => {
                                 // Priority: Meta Series > Item Series > Meta Title
-                                const s = meta.seriesTitle || meta.series || currentBook.seriesTitle || currentBook.series || meta.Series || meta.SERIES || "";
+                                let s = meta.seriesTitle || meta.series || currentBook.seriesTitle || currentBook.series || meta.Series || meta.SERIES || "";
                                 const v = meta.volume || meta.v || currentBook.volume || meta.Volume || meta.VOLUME;
+
+                                // Strip leading year if present (e.g. "1951 Space Detective" -> "Space Detective")
+                                const yearMatch = s.match(/^\d{4}\s+(.+)$/);
+                                if (yearMatch) {
+                                    s = yearMatch[1];
+                                }
 
                                 if (s && v) {
                                     return `${s} Vol. ${v}`;
@@ -216,13 +223,13 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                     <>
                         <button
                             onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-                            className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-white/20 text-white/70 hover:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md shadow-lg transition-all z-20 active:scale-95"
                         >
                             <ChevronLeft size={24} />
                         </button>
                         <button
                             onClick={(e) => { e.stopPropagation(); handleNext(); }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-white/20 text-white/70 hover:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md shadow-lg transition-all z-20 active:scale-95"
                         >
                             <ChevronRight size={24} />
                         </button>

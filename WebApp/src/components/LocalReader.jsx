@@ -3,9 +3,30 @@ import JSZip from 'jszip';
 import { ChevronLeft, ChevronRight, X, Loader2, Settings } from 'lucide-react';
 import { downloadManager } from '../services/downloadManager';
 
-const LocalReader = ({ bookId, onClose, config }) => {
+const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 0 }) => {
     const [pages, setPages] = useState([]);
-    const [currentPage, setCurrentPage] = useState(0); // 0-indexed
+    const [currentPage, setCurrentPage] = useState(initialPage); // 0-indexed
+    // ...
+
+    // Notify Parent of Progress
+    useEffect(() => {
+        if (pages.length > 0 && onProgressUpdate) {
+            onProgressUpdate(bookId, currentPage, pages.length);
+        }
+    }, [currentPage, pages.length, bookId, onProgressUpdate]);
+
+    // Load Book
+    useEffect(() => {
+        // ... (existing load logic)
+        // Check if we need to restore previous page? 
+        // Ideally App.jsx passes initialPage.
+        // For now, user didn't ask for restore but "Continue Reading" implies it.
+        // "Continue reading... ho iniziato a leggerlo..."
+        // If I open it, it should start where I left off?
+        // The user didn't explicitly complain about starting at 0, but "Continue Reading" implies resuming.
+        // I will add initialPage support if easy, otherwise stick to progress reporting first.
+        // Let's stick to reporting first.
+    }, [bookId]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showControls, setShowControls] = useState(false); // Default false per request
@@ -13,10 +34,21 @@ const LocalReader = ({ bookId, onClose, config }) => {
     // Tuner Config
     const topMargin = config?.comicTopMargin ?? 16;
     const sideMargin = config?.comicSideMargin ?? 16;
+    const pageNumSize = config?.comicPageNumFontSize ?? 18; // Default 18 if missing
+    // console.log("Reader Config:", config); // Debug helper
 
     // Load Book
     useEffect(() => {
         const loadBook = async () => {
+            // ... (existing code)
+            // ...
+            {/* Optional Page Indicator (Bottom Center) - Only visible when controls Active */ }
+            <div
+                className={`fixed bottom-8 left-1/2 -translate-x-1/2 px-4 py-1 bg-black/50 backdrop-blur rounded-full border border-white/10 text-white-400 font-mono transition-opacity duration-300 pointer-events-none ${showControls ? 'opacity-100' : 'opacity-0'}`}
+                style={{ fontSize: `${pageNumSize}px` }}
+            >
+                {currentPage + 1} / {pages.length}
+            </div>
             try {
                 setLoading(true);
                 console.log(`Open Local Reader for: ${bookId}`);
