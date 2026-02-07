@@ -118,8 +118,8 @@ export class LocalLibraryService {
 
         // Construct new path
         // Ensure standard formatting
-        const cleanTarget = targetFolderPath.replace(/\\/g, '/').replace(/\/$/, '');
-        const newPath = `${cleanTarget}/${fileName}`;
+        const cleanTarget = targetFolderPath ? targetFolderPath.replace(/\\/g, '/').replace(/\/$/, '') : "";
+        const newPath = cleanTarget ? `${cleanTarget}/${fileName}` : fileName;
 
         if (newPath === oldPath) return; // No op
 
@@ -149,8 +149,8 @@ export class LocalLibraryService {
         if (!book || !book.blob) throw new Error("Book not found or missing file");
 
         const fileName = book.opfsPath.split('/').pop();
-        const cleanTarget = targetFolderPath.replace(/\\/g, '/').replace(/\/$/, '');
-        const newPath = `${cleanTarget}/${fileName}`;
+        const cleanTarget = targetFolderPath ? targetFolderPath.replace(/\\/g, '/').replace(/\/$/, '') : "";
+        const newPath = cleanTarget ? `${cleanTarget}/${fileName}` : fileName;
 
         // 1. Save to new location
         await opfsManager.saveFile(newPath, book.blob);

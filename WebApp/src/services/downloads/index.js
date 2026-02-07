@@ -28,6 +28,7 @@ export class DownloadService {
         this.sessionCompleted = 0;
         this.sessionFailed = 0;
 
+        this.isPaused = false;
         this.activeDownloads = 0;
     }
 
@@ -47,6 +48,7 @@ export class DownloadService {
                 queue: this.queue,
                 current: this.currentDownload,
                 isDownloading: this.isDownloading,
+                isPaused: this.isPaused, // EXPOSE PAUSED STATE
                 stats: {
                     total: this.sessionTotal,
                     completed: this.sessionCompleted,
@@ -65,11 +67,13 @@ export class DownloadService {
 
         this.queue.push({ id: bookId, name: bookName, downloadFn, folderPath, coverUrl, metadata, headers, filename: safeName });
 
-        if (!this.isDownloading && this.queue.length === 1 && !this.currentDownload) {
+        if (!this.isDownloading && !this.isPaused && this.queue.length === 1 && !this.currentDownload) {
+            // Start new session if idle
             this.sessionTotal = 1;
             this.sessionCompleted = 0;
             this.sessionFailed = 0;
         } else {
+            // Append to running session
             this.sessionTotal++;
         }
 
@@ -77,16 +81,57 @@ export class DownloadService {
         this.processQueue();
     }
 
+    // Controls
+    pause() {
+        if (this.isDownloading) {
+            this.isPaused = true;
+            this.notify();
+        }
+    }
+
+    resume() {
+        if (this.isPaused) {
+            this.isPaused = false;
+            this.notify();
+            this.processQueue();
+        }
+    }
+
+    stop() {
+        // Stop: Clear queue, let current finish, then idle.
+        this.queue = [];
+        this.isPaused = false;
+        // We don't force kill active downloads but we ensure no more start.
+        // isDownloading remains true until actives finish.
+        this.notify();
+    }
+
     // Concurrent Queue Processing
     async processQueue() {
         const MAX_CONCURRENT = 3;
 
-        if (this.queue.length === 0 && this.activeDownloads === 0) {
-            this.isDownloading = false;
+        // Stop processing if paused or empty
+        if ((this.queue.length === 0 && this.activeDownloads === 0) || (this.isPaused && this.activeDownloads === 0)) {
+            // Only set downloading false if actually done (or paused and everything finished)
+            if (this.queue.length === 0) {
+                this.isDownloading = false;
+                // Reset session on full completion? Maybe keep stats for UI until dismissed?
+                // For now, keep stats.
+            }
+            // If paused, we stay "isDownloading=true" logically? 
+            // Better: isDownloading means "Working on something".
+            // If paused, we are NOT downloading new things.
             return;
         }
 
+        // If Paused, do not pick new tasks.
+        if (this.isPaused) return;
+
         while (this.activeDownloads < MAX_CONCURRENT && this.queue.length > 0) {
+
+            // Re-check pause in loop
+            if (this.isPaused) break;
+
             this.isDownloading = true;
             this.activeDownloads = (this.activeDownloads || 0) + 1;
 

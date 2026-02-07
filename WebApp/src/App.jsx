@@ -44,9 +44,9 @@ const defaultNavConfig = {
   subBarTop: 106,
   seriesBarTop: 106,
   booksGridTop: 100,
-  continueReadingMargin: 130,
+  continueReadingMargin: 25,
   librariesBarTop: 105,
-  gridMargin: 20,
+  gridMargin: 15,
   libPillPadX: 4,
   libPillPadY: 8,
   libPillFontSize: 16,
@@ -229,6 +229,16 @@ const LocalLibrary = ({ config }) => {
   const [bgImage, setBgImage] = useState(null); // Local background state
   const [previewItem, setPreviewItem] = useState(null); // Selected item for Preview Bar
   const [diagLog, setDiagLog] = useState(""); // DIAGNOSTIC STATE
+
+  // Download Status for UI Locking
+  const [downloadStatus, setDownloadStatus] = useState({ isDownloading: false, isPaused: false });
+
+  useEffect(() => {
+    const unsub = downloadService.subscribe((state) => {
+      setDownloadStatus({ isDownloading: state.isDownloading, isPaused: state.isPaused });
+    });
+    return unsub;
+  }, []);
 
   // Reading History (Persisted)
   const [readingHistory, setReadingHistory] = useState(() => {
@@ -831,25 +841,27 @@ const LocalLibrary = ({ config }) => {
   if (!rootTree) return <div className="p-10 text-center text-white/50">Loading Offline Library...</div>;
 
   return (
-    <div className="min-h-screen bg-black pb-24 text-white">
+    <div className="fixed inset-0 bg-black text-white flex flex-col overflow-hidden overscroll-none">
       {bgImage && (
-        <div className="fixed inset-0 z-0 overflow-hidden">
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
           <img
             src={bgImage}
-            className="w-full h-full object-cover blur-2xl opacity-40 scale-105 pointer-events-none transition-all duration-1000"
+            className="w-full h-full object-cover blur-2xl opacity-40 scale-105 transition-all duration-1000"
           />
-          <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+          <div className="absolute inset-0 bg-black/40" />
         </div>
       )}
-      {/* 2. Sub-Header Area (Sticky below global nav)
-          Global Nav is roughly: SafeTop + 20px (pt) + Height (~50px) + pb-4 ≈ 100px.
-          We push sticky header to top-32 (~128px) to be safe.
-      */}
+
+      {/* 2. HEADER AREA (Fixed) */}
       <div
-        className="sticky z-40 bg-transparent flex justify-center pointer-events-none transition-all duration-300 pb-4"
-        style={{ top: `${config?.librariesBarTop ?? 105}px` }}
+        className="flex-none z-40 bg-transparent flex justify-center transition-all duration-300 pb-2 pointer-events-none"
+        style={{
+          marginTop: `${config?.librariesBarTop ?? 32}px`, // Use margin top instead of absolute positioning
+          paddingLeft: `${config?.librariesBarSideMargin ?? 32}px`,
+          paddingRight: `${config?.librariesBarSideMargin ?? 32}px`,
+        }}
       >
-        <div className="pointer-events-auto flex items-center justify-between px-2 py-1 mx-4 transition-all duration-300"
+        <div className="pointer-events-auto flex items-center justify-between px-2 py-1 transition-all duration-300 w-full"
           style={{
             borderRadius: '9999px',
             backgroundColor: 'rgba(28, 28, 30, 0.9)',
@@ -858,15 +870,10 @@ const LocalLibrary = ({ config }) => {
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             gap: `${config?.gap ?? 4}px`,
             padding: `${config?.padding ?? 4}px`,
-            // Fixed width relative to viewport based on margins
-            width: `calc(100vw - ${(config?.librariesBarSideMargin ?? 32) * 2}px)`,
-            marginLeft: `${config?.librariesBarSideMargin ?? 32}px`,
-            marginRight: `${config?.librariesBarSideMargin ?? 32}px`,
-            minWidth: '320px', // Ensure minimum sizing
-            maxWidth: '100vw', // Override previous 95vw
-            overflow: 'visible', // ALLOW MENU TO OVERFLOW
-            position: 'relative', // Context for absolute bg
-            height: `${config?.librariesBarHeight ?? 64}px`, // Configurable Height
+            minWidth: '320px',
+            overflow: 'visible',
+            position: 'relative',
+            height: `${config?.librariesBarHeight ?? 64}px`,
           }}
         >
           {/* Dynamic Background Collage - Clipped to Shape */}
@@ -880,24 +887,21 @@ const LocalLibrary = ({ config }) => {
           </div>
 
           {/* Content Overlay */}
-          {/* Content Overlay */}
-          <div className="relative z-10 flex items-center justify-between w-full h-full pr-1">
-            <div className="flex-1 flex items-center min-w-0 mr-2 h-full">
+          <div className="relative z-10 flex items-center justify-between w-full h-full pr-1 overflow-hidden">
+            <div className="flex-1 flex items-center min-w-0 mr-2 h-full gap-4 overflow-hidden">
               {folderStack.length === 0 ? (
-                <div className="flex items-center justify-between gap-4 flex-1">
-                  <div className="flex items-center gap-4 overflow-hidden flex-1 pl-4">
-                    <h1 className="text-xl font-bold text-white truncate drop-shadow-lg">
-                      {currentFolder?.name === 'Root' ? 'Libreria' : currentFolder?.name}
-                    </h1>
+                <>
+                  {/* Scrolling Pill Bar - Flex 1 to take remaining space */}
+                  <div className="flex-1 min-w-0 overflow-hidden pl-4">
+                    <PillFilterBar
+                      tabs={tabs}
+                      selectedTab={selectedTab}
+                      onSelect={handleTabSelect}
+                      config={config}
+                      className="w-full"
+                    />
                   </div>
-
-                  <PillFilterBar
-                    tabs={tabs}
-                    selectedTab={selectedTab}
-                    onSelect={handleTabSelect}
-                    config={config}
-                  />
-                </div>
+                </>
               ) : (
                 /* NEW FOLDER NAV BAR */
                 <div className="relative flex items-center justify-between w-full h-full min-h-[44px]">
@@ -929,7 +933,7 @@ const LocalLibrary = ({ config }) => {
             </div>
 
             {/* Shared Context Menu */}
-            <div className="relative z-[100]">
+            <div className="flex-none z-[100]">
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 className="flex items-center justify-center transition-opacity hover:opacity-80 rounded-none bg-white/5 hover:bg-white/10 rounded-full"
@@ -1019,26 +1023,24 @@ const LocalLibrary = ({ config }) => {
           </div>
         </div>
       </div>
-      {/* 2. Main Content */}
-      <div className="p-4 space-y-8">
 
-        {/* Featured Carousel OR Folder Preview */}
-        {/* Continue Reading (History) Layout */}
+      {/* 2. Main Content - FLEX FLEX-COL to Fill Space */}
+      <div className="flex-1 flex flex-col min-h-0 px-4 pb-4 space-y-4">
+
+        {/* Featured Carousel OR Folder Preview (FIXED / NON-SCROLLING Wrapper) */}
         {
           carouselContent.length > 0 ? (
-            <div style={{ marginTop: `${config?.continueReadingMargin ?? 0}px` }}>
+            <div className="flex-none z-30" style={{ marginTop: `${config?.continueReadingMargin ?? 0}px` }}>
               {/* Header */}
               <div className="flex items-center justify-between px-2 mb-4 transition-all duration-300" style={{
                 marginLeft: config?.crSideMargin ? `${config.crSideMargin}px` : '0px',
                 marginRight: config?.crSideMargin ? `${config.crSideMargin}px` : '0px',
               }}>
                 <h3 className="font-bold text-white" style={{ fontSize: `${config?.crFontSize ?? 16}px` }}>
-                  {/* Logic: Root (Tutte) -> "Continue reading...". Library/Folder -> "Preview" */}
-                  {folderStack.length > 0 || selectedTab !== "Tutte" ? "Preview..." : "Continue reading..."}
+                  {folderStack.length > 0 || selectedTab !== "Tutte" ? "Preview" : "Continue reading"}
                 </h3>
               </div>
 
-              {/* No wrapper div here, let Carousel handle its own margins */}
               <ContinueReadingCarousel
                 books={carouselContent}
                 onRead={openBook}
@@ -1048,127 +1050,100 @@ const LocalLibrary = ({ config }) => {
           ) : null
         }
 
-        {/* Breadcrumbs removed (moved to top logic if needed, but requested to remove "Back" button) */}
-
-        {/* Grid */}
-        {
-          displayContent.children.length === 0 && displayContent.items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 opacity-50">
-              <Book size={48} className="mb-4 text-white/20" />
-              <p>No content found.</p>
-            </div>
-          ) : (
-            /* GRID CONTAINER (GLASS BOX) */
-            <div
-              className="relative group rounded-xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-300"
-              style={{
-                minHeight: `${config?.gridHeight ?? 600}px`,
-                marginTop: `${config?.gridMargin ?? 32}px`,
-                marginLeft: `${config?.gridSideMargin ?? 0}px`,
-                marginRight: `${config?.gridSideMargin ?? 0}px`,
-                backgroundColor: `rgba(28, 28, 30, ${(config?.bgOpacity ?? 30) / 100})`,
-                backdropFilter: 'blur(20px)'
-              }}
-            >
-              {/* Background Scheme matched to Continue Reading: Local Content Background + Gradient */}
-              <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-                {/* 1. Local Background Image (Random from current view - Memoized) */}
-                {gridBackgroundCover && (
-                  <AuthImage
-                    src={gridBackgroundCover}
-                    className="w-full h-full object-cover opacity-70 blur-xl scale-110"
-                  />
-                )}
-                {/* 2. Gradient Overlay - Reduced darkness for better visibility */}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-black/20 to-transparent" />
+        {/* Grid Container (FIXED SHAPE - SCROLLABLE INTERNAL) */}
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          {
+            displayContent.children.length === 0 && displayContent.items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 opacity-50">
+                <Book size={48} className="mb-4 text-white/20" />
+                <p>No content found.</p>
               </div>
-
-              {/* EMPTY STATE / LOADING */}
-              {(!rootTree || (displayContent.children.length === 0 && displayContent.items.length === 0)) && (
-                <div className="relative z-10 flex flex-col items-center justify-center h-full text-white/50 animate-in fade-in zoom-in-95">
-                  {!rootTree ? (
-                    <>
-                      <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-blue-500 animate-spin mb-4" />
-                      <span>Loading Library...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Book size={48} className="mb-4 opacity-50" />
-                      <h3 className="text-xl font-bold text-white mb-2">No Books Found</h3>
-                      <p className="max-w-xs text-center text-sm">
-                        Import content from your server to get started.
-                      </p>
-                      <Link to="/app/import" className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full text-white font-medium transition-colors">
-                        Go to Import
-                      </Link>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* SCROLLABLE INNER CONTENT */}
+            ) : (
+              /* GRID CONTAINER (GLASS BOX) - Grows to fill remaining space */
               <div
-                className="relative z-10 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-white/20"
+                className="relative flex-1 group rounded-xl overflow-hidden shadow-2xl border border-white/10 transition-all duration-300 flex flex-col"
                 style={{
-                  padding: `${config?.gridInnerPadding ?? 24}px`
+                  marginTop: `${config?.gridMargin ?? 32}px`, // RESTORED MARGIN
+                  marginLeft: `${config?.gridSideMargin ?? 0}px`,
+                  marginRight: `${config?.gridSideMargin ?? 0}px`,
+                  backgroundColor: `rgba(28, 28, 30, ${(config?.bgOpacity ?? 30) / 100})`,
+                  backdropFilter: 'blur(20px)'
                 }}
               >
+                {/* Background Scheme */}
+                <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+                  {gridBackgroundCover && (
+                    <AuthImage
+                      src={gridBackgroundCover}
+                      className="w-full h-full object-cover opacity-70 blur-xl scale-110"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-black/20 to-transparent" />
+                </div>
+
+                {/* EMPTY STATE / LOADING */}
+                {(!rootTree || (displayContent.children.length === 0 && displayContent.items.length === 0)) && (
+                  <div className="relative z-10 flex flex-col items-center justify-center h-full text-white/50">
+                    {/* ... Loading state ... */}
+                    <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-blue-500 animate-spin mb-4" />
+                    <span>Loading...</span>
+                  </div>
+                )}
+
+                {/* SCROLLABLE INNER CONTENT */}
                 <div
-                  className="grid transition-all duration-300 rounded-xl overflow-hidden"
+                  className="relative z-10 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/20"
                   style={{
-                    gridTemplateColumns: `repeat(${config?.gridColumns || 5}, minmax(0, 1fr))`,
-                    gap: `${(config?.gap ?? 4) * 5}px`
+                    padding: `${config?.gridInnerPadding ?? 24}px`
                   }}
                 >
-                  {/* Folders */}
-                  {displayContent.children.map(child => {
-                    // RESOLVE FOLDER COVER
-                    // offlineTree.js now bubbles up 'coverUrl' from children to the folder node.
-                    // So we can strictly rely on child.coverUrl (which is a Blob URL).
-                    const folderCover = child.coverUrl || null;
+                  <div
+                    className="grid transition-all duration-300 rounded-xl"
+                    style={{
+                      gridTemplateColumns: `repeat(${config?.gridColumns || 5}, minmax(0, 1fr))`,
+                      gap: `${(config?.gap ?? 4) * 5}px`
+                    }}
+                  >
+                    {/* Folders */}
+                    {displayContent.children.map(child => {
+                      const folderCover = child.coverUrl || null;
+                      return (
+                        <div key={child.id} onClick={() => {
+                          if (isSelectionMode) return;
+                          enterFolder(child);
+                        }} className="cursor-pointer relative">
+                          <ComicBox
+                            title={child.name}
+                            itemCount={child.items.length + child.children.length}
+                            variant="folder"
+                            coverUrl={folderCover} // Pass resolved cover
+                          />
+                        </div>
+                      )
+                    })}
 
-                    return (
-                      <div key={child.id} onClick={() => {
-                        if (isSelectionMode) {
-                          return;
-                        }
-                        enterFolder(child);
-                      }} className="cursor-pointer relative">
-                        <ComicBox
-                          title={child.name}
-                          itemCount={child.items.length + child.children.length}
-                          variant="folder"
-                          coverUrl={folderCover} // Pass resolved cover
-                        />
-                      </div>
-                    )
-                  })}
-
-                  {/* Books */}
-                  {displayContent.items.map((item) => (
-                    <LocalLibraryItem
-                      key={item.id}
-                      item={{
-                        ...item,
-                        // Inject active reading progress from history to ensure Yellow Triangle appears
-                        readProgress: readingHistory.find(h => h.id === item.id)?.readProgress || item.readProgress
-                      }}
-                      // Selection Props
-                      selectionMode={isSelectionMode}
-                      isSelected={selectedItems.has(item.id)}
-                      onToggleSelect={() => handleSelectItem(item.id)}
-
-                      onFolderClick={enterFolder}
-                      onBookClick={handleGridBookClick}
-                      onBookDoubleClick={handleGridBookDoubleClick}
-                    />
-                  ))}
+                    {/* Books */}
+                    {displayContent.items.map((item) => (
+                      <LocalLibraryItem
+                        key={item.id}
+                        item={{
+                          ...item,
+                          readProgress: readingHistory.find(h => h.id === item.id)?.readProgress || item.readProgress
+                        }}
+                        selectionMode={isSelectionMode}
+                        isSelected={selectedItems.has(item.id)}
+                        onToggleSelect={() => handleSelectItem(item.id)}
+                        onFolderClick={enterFolder}
+                        onBookClick={handleGridBookClick}
+                        onBookDoubleClick={handleGridBookDoubleClick}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-
-          )
-        }
+            )
+          }
+        </div>
       </div >
 
       {/* Reader Overlay */}
@@ -1546,6 +1521,16 @@ const RemoteSeriesList = ({ config }) => {
   const [fileSystemData, setFileSystemData] = useState({ directories: [], files: [] });
   const [loadingFS, setLoadingFS] = useState(false);
   const [libraryRoot, setLibraryRoot] = useState(null);
+
+  // Download Status for UI Locking
+  const [downloadStatus, setDownloadStatus] = useState({ isDownloading: false, isPaused: false });
+
+  useEffect(() => {
+    const unsub = downloadService.subscribe((state) => {
+      setDownloadStatus({ isDownloading: state.isDownloading, isPaused: state.isPaused });
+    });
+    return unsub;
+  }, []);
 
   // --- LEGACY COMPATIBILITY (Prevents ReferenceError) ---
   const [useFolderView, setUseFolderView] = useState(true);
@@ -1986,7 +1971,8 @@ const RemoteSeriesList = ({ config }) => {
 
   return (
     <div className="min-h-screen pb-32 bg-[#121212] relative">
-      <DownloadProgress />
+      {/* Download Progress Bar - Only valid if Dialog is CLOSED (to avoid double bars) */}
+      {!downloadDialog.isOpen && <DownloadProgress />}
 
       {/* RESTORED: Download Confirmation Dialog */}
       <DownloadConfirmationDialog
@@ -2137,14 +2123,14 @@ const RemoteSeriesList = ({ config }) => {
                         <div style={{ height: `${config?.importMenuGap ?? 16}px` }} />
 
                         <button
-                          disabled={selectedItems.size === 0}
+                          disabled={selectedItems.size === 0 || downloadStatus.isDownloading}
                           onClick={() => {
-                            if (selectedItems.size > 0) {
+                            if (selectedItems.size > 0 && !downloadStatus.isDownloading) {
                               handleBulkDownloadRequest();
                               setShowMenu(false);
                             }
                           }}
-                          className={`w-full text-left rounded-xl flex items-center justify-between transition-colors group ${selectedItems.size > 0 ? 'bg-white/10 hover:bg-white/20 text-white cursor-pointer shadow-sm' : 'text-white/30 cursor-not-allowed'}`}
+                          className={`w-full text-left rounded-xl flex items-center justify-between transition-colors group ${selectedItems.size > 0 && !downloadStatus.isDownloading ? 'bg-white/10 hover:bg-white/20 text-white cursor-pointer shadow-sm' : 'text-white/30 cursor-not-allowed'}`}
                           style={{ padding: `${config?.importMenuItemPadding ?? 0}px ${config?.importMenuItemPaddingX ?? 24}px` }}
                         >
                           <span className="font-medium tracking-wide" style={{ fontSize: `${config?.importMenuFontSize ?? 16}px` }}>

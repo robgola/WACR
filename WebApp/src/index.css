@@ -36,15 +36,23 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html,
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* Key to stopping bounce: Body cannot scroll */
+  overscroll-behavior: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg-app);
   color: var(--text-primary);
-  min-height: 100vh;
-  /* Premium Overscroll behavior */
-  overscroll-behavior-y: none;
-  font-smoothing: antialiased;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
 }
 
 /* Utilities */
