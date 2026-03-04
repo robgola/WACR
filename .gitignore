@@ -24,3 +24,11 @@ AppConstants_Local.swift
 
 # OS Files
 .DS_Store
+
+# WebApp
+WebApp/node_modules/
+WebApp/dist/
+WebApp/public/models/
+WebApp/public/sample/
+WebApp/backend/
+WebApp/Pipeline/

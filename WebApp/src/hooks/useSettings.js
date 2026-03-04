@@ -6,20 +6,28 @@ const FORCE_REFRESH_KEY = 'acr_settings_v3_proxy_final'; // Bump version to inva
 const defaultSettings = {
     serverUrl: '/komga-proxy',
     username: 'test@test.it',
-    password: 'test'
+    password: 'test',
+    appLanguage: 'Italiano',
+    debugMode: false
 };
 
 export function useSettings() {
     const [settings, setSettings] = useState(() => {
-        // ALWAYS return defaultSettings for this debugging session to ensure Proxy is used
-        // ignoring localStorage to fix the "stuck on old URL" issue
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                return { ...defaultSettings, ...JSON.parse(stored) };
+            }
+        } catch (e) {
+            console.error("Failed to load settings", e);
+        }
         return defaultSettings;
     });
 
     const saveSettings = (newSettings) => {
-        setSettings(newSettings);
-        // basic persistence
-        localStorage.setItem(FORCE_REFRESH_KEY, JSON.stringify(newSettings));
+        const updated = { ...settings, ...newSettings };
+        setSettings(updated);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     };
 
     return { settings, saveSettings };

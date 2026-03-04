@@ -2,12 +2,25 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'node_modules/onnxruntime-web/dist/*.wasm',
+          dest: ''
+        },
+        {
+          src: 'node_modules/onnxruntime-web/dist/*.mjs',
+          dest: ''
+        }
+      ]
+    }),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'vite.svg'],
@@ -17,7 +30,7 @@ export default defineConfig({
         description: 'Premium Web Reader for Komga',
         theme_color: '#1C1C1E',
         background_color: '#121212',
-        display: 'standalone',
+        display: 'fullscreen',
         orientation: 'portrait',
         start_url: './',
         scope: './',
@@ -45,8 +58,19 @@ export default defineConfig({
   base: '/WACR/', // Restored per user request
   server: {
     host: true, // Allow external access (iPad)
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     proxy: {
-      // Proxying /komga-proxy requests to the real server
+      // 1. Proxy WebLLM internal HuggingFace resolution paths back to flat public folder
+      // WebLLM hardcodes requests to /resolve/main/ for files, even when serving locally.
+      // This strips the /resolve/main bypass so Vite finds the files in /public/models/webllm
+      '^/WACR/models/webllm/.*/resolve/main/.*': {
+        target: 'http://localhost:5173',
+        rewrite: (path) => path.replace('/resolve/main', '')
+      },
+      // 2. Proxying /komga-proxy requests to the real server
       '/komga-proxy': {
         target: 'https://phnx-komga-mi.duckdns.org:8843',
         changeOrigin: true,
@@ -65,5 +89,8 @@ export default defineConfig({
         },
       }
     }
+  },
+  optimizeDeps: {
+    exclude: ['@huggingface/transformers', 'onnxruntime-web'],
   }
 })

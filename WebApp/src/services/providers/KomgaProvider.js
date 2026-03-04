@@ -58,18 +58,17 @@ export class KomgaProvider {
                     console.log(`🐛 [KomgaProvider] Normalized Root: ${this.libraryRoot}, Name: ${this.libraryName}`);
                 }
 
-                // 2. DUAL FETCH
-                const [seriesRes, booksRes] = await Promise.all([
-                    fetch(`${this.baseUrl}/series?library_id=${libraryId}&size=10000`, { headers: this.headers }),
-                    fetch(`${this.baseUrl}/books?library_id=${libraryId}&size=10000`, { headers: this.headers })
-                ]);
+                // 2. FETCH SERIES ONLY (Lazy Books)
+                // Fetching 10k series is roughly 5-10MB JSON, acceptable.
+                // Fetching 10k books is 50-100MB JSON, NOT acceptable.
+                const seriesRes = await fetch(`${this.baseUrl}/series?library_id=${libraryId}&size=10000`, { headers: this.headers });
 
-                if (!seriesRes.ok || !booksRes.ok) throw new Error("Metadata fetch failed");
+                if (!seriesRes.ok) throw new Error("Metadata fetch failed");
 
                 const seriesList = (await seriesRes.json()).content || [];
-                const booksList = (await booksRes.json()).content || [];
+                const booksList = []; // Start empty, load on demand
 
-                console.log(`🐛 [KomgaProvider] Processed: ${seriesList.length} Series, ${booksList.length} Books`);
+                console.log(`🐛 [KomgaProvider] Processed: ${seriesList.length} Series (Books Lazy Loaded)`);
 
                 // 3. BUILD TREE
                 const tree = this.buildHierarchy(seriesList, booksList);
@@ -86,6 +85,57 @@ export class KomgaProvider {
         })();
 
         return this.initPromise;
+    }
+
+    // Helper to Lazy Load Books
+    async loadBooksForSeries(node) {
+        if (node._booksLoaded || !node.seriesId) return;
+
+        console.log(`📥 [KomgaProvider] Lazy Loading Books for Series: ${node.name} (${node.seriesId})`);
+        try {
+            const res = await fetch(`${this.baseUrl}/series/${node.seriesId}/books?size=1000`, { headers: this.headers });
+            if (!res.ok) throw new Error("Failed to load books");
+
+            const books = (await res.json()).content || [];
+
+            // Map books to file nodes
+            const mappedBooks = books.map(b => ({
+                id: b.id,
+                name: b.metadata.number + " - " + (b.metadata.title || b.name) + ".cbz", // Better naming? Or keep strict filename? 
+                // Wait, users want original filename often, or sorted.
+                // Let's stick to original behavior: url -> filename.
+                // Actually Komga returns `url` like `/api/v1/books/{id}` sometimes or file path?
+                // The API book object has `url` property usually pointing to download.
+                // But let's check what `buildHierarchy` expected. 
+                // It expected `b.url` to contain path. 
+                // Does `/series/{id}/books` return `url` with full path?
+                // Usually yes.
+                type: 'book',
+                path: b.url.replace(/\\/g, '/'),
+                size: b.sizeBytes || 0,
+                metadata: b.metadata,
+                // Add extra for sorting
+                number: b.metadata.numberSort
+            }));
+
+            // Use valid filename from url
+            mappedBooks.forEach(b => {
+                const parts = b.path.split('/');
+                b.name = parts[parts.length - 1];
+            });
+
+            // Sort by number
+            mappedBooks.sort((a, b) => (a.number || 0) - (b.number || 0));
+
+            node.files = mappedBooks;
+            node._booksLoaded = true;
+
+            // Update representative if needed?
+            // this.populateRepresentativeIds(node); // Might be expensive to re-calc up, but locally ok.
+
+        } catch (e) {
+            console.error(`Failed to load books for ${node.name}`, e);
+        }
     }
 
     buildHierarchy(seriesList, booksList) {
@@ -108,7 +158,8 @@ export class KomgaProvider {
                     path: fullPath,
                     directories: [],
                     files: [],
-                    seriesId: null
+                    seriesId: null,
+                    _booksLoaded: false // Flag for lazy loading
                 };
                 parent.directories.push(dir);
             }
@@ -139,12 +190,13 @@ export class KomgaProvider {
                     node.id = s.id; // REAL ID override
                     node.seriesId = s.id;
                     node.metadata = s.metadata;
+                    // It's a Series leaf node (mostly)
                 }
                 currentNode = node;
             });
         });
 
-        // 2. Map BOOKS
+        // 2. Map BOOKS (Skipped in Init, used if booksList provided)
         booksList.forEach(b => {
             const parts = getRelativeParts(b.url);
             const filename = parts.pop();
@@ -248,6 +300,11 @@ export class KomgaProvider {
             }
         }
 
+        // Lazy Load check
+        if (targetNode.seriesId && !targetNode._booksLoaded) {
+            await this.loadBooksForSeries(targetNode);
+        }
+
         // Inject UI Helper props with Pre-calculated URLs
         const mapItem = (item) => {
             // Priority: Real ID -> Representative ID
@@ -311,8 +368,13 @@ export class KomgaProvider {
         return "";
     }
     // Recursive Helper to flatten tree for Downloads
-    extractAllFiles(node) {
+    async extractAllFiles(node) {
         let files = [];
+
+        // 0. Lazy Load if needed
+        if (node.seriesId && !node._booksLoaded) {
+            await this.loadBooksForSeries(node);
+        }
 
         // 1. Add files in current node
         if (node.files && node.files.length > 0) {
@@ -322,7 +384,8 @@ export class KomgaProvider {
         // 2. Recurse into subdirectories
         if (node.directories && node.directories.length > 0) {
             for (const dir of node.directories) {
-                files.push(...this.extractAllFiles(dir));
+                const subFiles = await this.extractAllFiles(dir);
+                files.push(...subFiles);
             }
         }
         return files;

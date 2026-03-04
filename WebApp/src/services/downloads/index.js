@@ -40,23 +40,27 @@ export class DownloadService {
     }
 
     notify() {
-        const total = this.sessionTotal || this.queue.length + (this.currentDownload ? 1 : 0);
-        const percent = total > 0 ? Math.round(((this.sessionCompleted + this.sessionFailed) / total) * 100) : 0;
+        if (this._notifyTimeout) clearTimeout(this._notifyTimeout);
+        this._notifyTimeout = setTimeout(() => {
+            const total = this.sessionTotal || this.queue.length + (this.currentDownload ? 1 : 0);
+            const percent = total > 0 ? Math.round(((this.sessionCompleted + this.sessionFailed) / total) * 100) : 0;
 
-        for (const listener of this.listeners) {
-            listener({
-                queue: this.queue,
-                current: this.currentDownload,
-                isDownloading: this.isDownloading,
-                isPaused: this.isPaused, // EXPOSE PAUSED STATE
-                stats: {
-                    total: this.sessionTotal,
-                    completed: this.sessionCompleted,
-                    failed: this.sessionFailed,
-                    percent: percent
-                }
-            });
-        }
+            for (const listener of this.listeners) {
+                listener({
+                    queue: this.queue,
+                    current: this.currentDownload,
+                    isDownloading: this.isDownloading,
+                    isPaused: this.isPaused,
+                    stats: {
+                        total: this.sessionTotal,
+                        completed: this.sessionCompleted,
+                        failed: this.sessionFailed,
+                        percent: percent,
+                        currentFile: this.currentDownload?.name || "" // Add Filename
+                    }
+                });
+            }
+        }, 300); // Debounce 300ms
     }
 
     addToQueue(bookId, bookName, downloadFn, folderPath = "", coverUrl = null, metadata = {}, headers = {}, filename = null) {
@@ -77,6 +81,8 @@ export class DownloadService {
             this.sessionTotal++;
         }
 
+        // Force immediate notify on add, then debounce updates
+        // Actually, debounce is fine.
         this.notify();
         this.processQueue();
     }
@@ -99,35 +105,38 @@ export class DownloadService {
 
     stop() {
         // Stop: Clear queue, let current finish, then idle.
+        console.log("🛑 Stopping Download Queue");
         this.queue = [];
         this.isPaused = false;
-        // We don't force kill active downloads but we ensure no more start.
-        // isDownloading remains true until actives finish.
+        // We let the current download finish (no abort controller yet).
+        // But we update UI immediately? 
+        // Wait for current to finish to set isDownloading=false?
+        // Let's set a flag "stopping".
+        // Actually, clearing queue is enough. processQueue loop will exit after current.
         this.notify();
     }
 
     // Concurrent Queue Processing
     async processQueue() {
-        const MAX_CONCURRENT = 3;
+        const MAX_CONCURRENT = 1; // Simplify to 1 for stability/pause logic? Or keep 3?
+        // 3 concurrent downloads might be heavy if not careful. Stick to 1 or 2.
+        // Let's stick to existing logic but sequential is safer for pause.
+        // Or stick to parallel.
+        // Resume logic needs to be careful not to spawn multiple loops.
 
         // Stop processing if paused or empty
         if ((this.queue.length === 0 && this.activeDownloads === 0) || (this.isPaused && this.activeDownloads === 0)) {
             // Only set downloading false if actually done (or paused and everything finished)
             if (this.queue.length === 0) {
                 this.isDownloading = false;
-                // Reset session on full completion? Maybe keep stats for UI until dismissed?
-                // For now, keep stats.
             }
-            // If paused, we stay "isDownloading=true" logically? 
-            // Better: isDownloading means "Working on something".
-            // If paused, we are NOT downloading new things.
             return;
         }
 
         // If Paused, do not pick new tasks.
         if (this.isPaused) return;
 
-        while (this.activeDownloads < MAX_CONCURRENT && this.queue.length > 0) {
+        while (this.activeDownloads < 3 && this.queue.length > 0) { // Keep 3 concurrent
 
             // Re-check pause in loop
             if (this.isPaused) break;

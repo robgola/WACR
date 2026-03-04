@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useSettings } from '../hooks/useSettings';
 import { KomgaService } from '../services/komgaService';
 
 import Toast from '../components/ui/Toast';
@@ -7,21 +8,22 @@ import Toast from '../components/ui/Toast';
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-    // Access Shared Auth State
     const { activeProfile, isAuthenticated } = useAuth();
+    const { settings: appSettings, saveSettings: saveAppSettings } = useSettings();
 
-    // We removed useSettings as it was causing the auth mismatch.
-    // If we need saveSettings for other things, we should migrate them or use a different store.
-    // For now, let's keep the interface compatible but no-op saveSettings or implement it using useAuth?
-    // Actually, saveSettings logic belongs to SettingsPage which now uses useAuth directly.
-    // We will provide dummy compatibility if needed, or update consumers.
-    const settings = activeProfile ? {
-        serverUrl: activeProfile.url,
-        username: activeProfile.username,
-        password: activeProfile.password
-    } : {};
+    const settings = React.useMemo(() => ({
+        ...appSettings,
+        ...(activeProfile ? {
+            serverUrl: activeProfile.url,
+            username: activeProfile.username,
+            password: activeProfile.password
+        } : {})
+    }), [appSettings, activeProfile]);
 
-    const saveSettings = () => { console.warn("Legacy saveSettings called. Use useAuth saveProfile."); };
+    const saveSettings = (newSet) => {
+        const { serverUrl, username, password, ...globalOnly } = newSet;
+        saveAppSettings(globalOnly);
+    };
 
     const [komgaService, setKomgaService] = useState(null);
     const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, error
@@ -97,9 +99,8 @@ export const AppProvider = ({ children }) => {
         addLog(message, type); // Auto-log toasts
     };
 
-    // Memoize the value to prevent global re-renders
     const memoizedValue = React.useMemo(() => ({
-        settings, saveSettings, // Compat
+        settings, saveSettings, // Combined settings
         komgaService, connectionStatus, setConnectionStatus,
         showToast, addLog, logs,
         cache, updateCache,
@@ -107,7 +108,7 @@ export const AppProvider = ({ children }) => {
         showTuner, toggleTuner,
         showDebug, setShowDebug,
         showLogs, setShowLogs
-    }), [activeProfile, komgaService, connectionStatus, logs, cache, showTuner, showDebug, showLogs]);
+    }), [settings, komgaService, connectionStatus, logs, cache, showTuner, showDebug, showLogs]);
 
     return (
         <AppContext.Provider value={memoizedValue}>

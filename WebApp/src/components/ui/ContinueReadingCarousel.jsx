@@ -10,7 +10,10 @@ import { opfsManager } from '../../services/opfsManager'; // Import OPFS Manager
 import { Bug } from 'lucide-react';
 import MetadataDebugModal from './MetadataDebugModal';
 
+import { useApp } from '../../context/AppContext';
+
 const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" }) => {
+    const { settings } = useApp();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [enrichedMetadata, setEnrichedMetadata] = useState(null);
     const [showDebug, setShowDebug] = useState(false); // Debug State
@@ -30,6 +33,8 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
         setEnrichedMetadata(null);
 
         const loadAndParse = async () => {
+            if (!currentBook) return;
+
             let blob = currentBook.blob;
             // If blob not in memory, try to load from OPFS
             if (!blob && currentBook.opfsPath) {
@@ -48,7 +53,7 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
 
         loadAndParse();
 
-    }, [currentBook]);
+    }, [currentBook?.id, currentBook?.coverUrl]); // Depend on primitives, not object reference
 
     // Defaults
     const height = config?.crHeight ?? 300;
@@ -127,13 +132,15 @@ const ContinueReadingCarousel = ({ books = [], onRead, config, className = "" })
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent rounded-md pointer-events-none" />
 
                         {/* DEBUG BUTTON overlay on cover - Always Visible for Touch Devices */}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setShowDebug(true); }}
-                            className="absolute top-2 right-2 p-2 bg-black/60 hover:bg-blue-600 text-white rounded-full transition-all z-20 backdrop-blur-md border border-white/20 shadow-xl"
-                            title="Inspect ComicInfo.xml"
-                        >
-                            <Bug size={18} />
-                        </button>
+                        {settings?.debugMode && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowDebug(true); }}
+                                className="absolute top-2 right-2 p-2 bg-black/60 hover:bg-blue-600 text-white rounded-full transition-all z-20 backdrop-blur-md border border-white/20 shadow-xl"
+                                title="Inspect ComicInfo.xml"
+                            >
+                                <Bug size={18} />
+                            </button>
+                        )}
                     </div>
 
                     {/* Metadata */}

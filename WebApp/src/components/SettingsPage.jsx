@@ -67,13 +67,20 @@ const SettingsPage = ({ config }) => {
     const navigate = useNavigate();
 
     // Form State
+    const { settings, saveSettings: saveAppSettings } = useApp();
     const [formData, setFormData] = useState({
         type: activeType,
         name: 'Komga Server',
         address: '',
         port: '',
         username: '',
-        password: ''
+        password: '',
+        aiPipeline: localStorage.getItem('acr_ai_pipeline') || 'local',
+        geminiKey: localStorage.getItem('acr_gemini_api_key') || '',
+        ocrLanguage: localStorage.getItem('acr_ocr_lang') || 'English',
+        translateLanguage: localStorage.getItem('acr_translate_lang') || 'Italian',
+        appLanguage: settings?.appLanguage || 'Italiano',
+        debugMode: settings?.debugMode || false
     });
 
     // UI State
@@ -196,7 +203,18 @@ const SettingsPage = ({ config }) => {
     const handleSaveManual = () => {
         const fullUrl = buildFullUrl();
         saveProfile(formData.type, fullUrl, formData.username, formData.password);
-        if (activeType !== formData.type) switchProfile(formData.type);
+        // Save AI Settings
+        localStorage.setItem('acr_ai_pipeline', formData.aiPipeline);
+        localStorage.setItem('acr_gemini_api_key', formData.geminiKey);
+        localStorage.setItem('acr_ocr_lang', formData.ocrLanguage);
+        localStorage.setItem('acr_translate_lang', formData.translateLanguage);
+
+        // Save App Settings
+        saveAppSettings({
+            appLanguage: formData.appLanguage,
+            debugMode: formData.debugMode
+        });
+
         setMessage({ type: 'success', text: 'Settings Saved' });
     };
 
@@ -291,46 +309,162 @@ const SettingsPage = ({ config }) => {
                     </h2>
 
                     <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-                        {/* Menu Tuner - Toggle Style */}
+                        {/* Language Selector */}
+                        <SettingRow
+                            label="Lingua"
+                            isSelect
+                            name="appLanguage"
+                            value={formData.appLanguage}
+                            onChange={handleChange}
+                            innerPadding={innerPadding}
+                            options={[
+                                { value: 'Italiano', label: 'Italiano' },
+                                { value: 'Inglese', label: 'Inglese' }
+                            ]}
+                        />
+
+                        {/* Debug Toggle */}
                         <div
                             className="flex items-center justify-between py-4 border-b border-white/10 cursor-pointer hover:bg-white/10 transition-colors group"
-                            onClick={toggleTuner}
+                            onClick={() => setFormData(prev => ({ ...prev, debugMode: !prev.debugMode }))}
                             style={{ padding: `16px ${innerPadding}` }}
                         >
-                            <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">Menu Layout Tuner</span>
-
-                            {/* Matching Capsule Style */}
-                            <div className={`${capsuleClass} ${showTuner ? 'bg-green-500 text-white shadow-lg shadow-green-500/20' : 'bg-white/10 text-white/40'}`}
+                            <span className="text-white font-medium pl-2">Debug</span>
+                            <div className={`${capsuleClass} ${formData.debugMode ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/10 text-white/40'}`}
                                 style={capsuleStyle}
                             >
-                                <span className="uppercase tracking-wider text-[10px]">{showTuner ? 'Configure UI' : 'Off'}</span>
+                                <span className="uppercase tracking-wider text-[10px]">{formData.debugMode ? 'On' : 'Off'}</span>
                             </div>
                         </div>
 
-                        {/* Storage Inspector */}
-                        <div
-                            className="flex items-center justify-between py-4 border-b border-white/10 cursor-pointer hover:bg-white/10 transition-colors group"
-                            onClick={() => setShowDebug(true)}
-                            style={{ padding: `16px ${innerPadding}` }}
-                        >
-                            <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">Storage Inspector</span>
-                            <div className="flex items-center gap-2 text-white/50 pr-2 group-hover:translate-x-1 transition-transform">
-                                <span className="text-sm font-medium">View</span>
-                                <ChevronRight size={18} />
-                            </div>
+                        {formData.debugMode && (
+                            <>
+                                {/* Menu Tuner - Toggle Style */}
+                                <div
+                                    className="flex items-center justify-between py-4 border-b border-white/10 cursor-pointer hover:bg-white/10 transition-colors group"
+                                    onClick={toggleTuner}
+                                    style={{ padding: `16px ${innerPadding}` }}
+                                >
+                                    <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">Menu Layout Tuner</span>
+
+                                    <div className={`${capsuleClass} ${showTuner ? 'bg-green-500 text-white shadow-lg shadow-green-500/20' : 'bg-white/10 text-white/40'}`}
+                                        style={capsuleStyle}
+                                    >
+                                        <span className="uppercase tracking-wider text-[10px]">{showTuner ? 'Configure UI' : 'Off'}</span>
+                                    </div>
+                                </div>
+
+                                {/* Storage Inspector */}
+                                <div
+                                    className="flex items-center justify-between py-4 border-b border-white/10 cursor-pointer hover:bg-white/10 transition-colors group"
+                                    onClick={() => setShowDebug(true)}
+                                    style={{ padding: `16px ${innerPadding}` }}
+                                >
+                                    <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">Storage Inspector</span>
+                                    <div className="flex items-center gap-2 text-white/50 pr-2 group-hover:translate-x-1 transition-transform">
+                                        <span className="text-sm font-medium">View</span>
+                                        <ChevronRight size={18} />
+                                    </div>
+                                </div>
+
+                                {/* Logs */}
+                                <div
+                                    className="flex items-center justify-between py-4 cursor-pointer hover:bg-white/10 transition-colors group"
+                                    onClick={() => setShowLogs(true)}
+                                    style={{ padding: `16px ${innerPadding}` }}
+                                >
+                                    <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">System Logs</span>
+                                    <div className="flex items-center gap-2 text-white/50 pr-2 group-hover:translate-x-1 transition-transform">
+                                        <span className="text-sm font-medium">Debug & Reset</span>
+                                        <ChevronRight size={18} />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* PILL 3: AI PROCESSING */}
+                <div className="w-full animate-in fade-in slide-in-from-bottom-12 duration-900 mb-20">
+                    <h2 className="font-bold text-white mb-2 pl-4" style={{ fontSize: titleSize, marginBottom: titleMargin }}>
+                        AI Processing
+                    </h2>
+
+                    <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                        <SettingRow
+                            label="Pipeline"
+                            isSelect
+                            name="aiPipeline"
+                            value={formData.aiPipeline}
+                            onChange={handleChange}
+                            innerPadding={innerPadding}
+                            options={[
+                                { value: 'local', label: 'Local (Device)' },
+                                { value: 'gemini', label: 'Gemini (Cloud)' }
+                            ]}
+                        />
+
+                        {formData.aiPipeline === 'gemini' && (
+                            <SettingRow
+                                innerPadding={innerPadding}
+                                label="Gemini API Key"
+                                name="geminiKey"
+                                type="password"
+                                value={formData.geminiKey}
+                                onChange={handleChange}
+                                showPassword={showPassword}
+                                onTogglePassword={() => setShowPassword(!showPassword)}
+                                isLast
+                            />
+                        )}
+
+                        <div style={{ padding: `16px ${innerPadding}` }} className="text-white/50 text-sm italic border-t border-white/5 bg-[#1a1a1a]/50">
+                            Language Preferences
                         </div>
 
-                        {/* Logs */}
-                        <div
-                            className="flex items-center justify-between py-4 cursor-pointer hover:bg-white/10 transition-colors group"
-                            onClick={() => setShowLogs(true)}
-                            style={{ padding: `16px ${innerPadding}` }}
-                        >
-                            <span className="text-white font-medium pl-2 group-hover:text-blue-400 transition-colors">System Logs</span>
-                            <div className="flex items-center gap-2 text-white/50 pr-2 group-hover:translate-x-1 transition-transform">
-                                <span className="text-sm font-medium">Debug & Reset</span>
-                                <ChevronRight size={18} />
+                        <SettingRow
+                            label="Reading Language (OCR)"
+                            isSelect
+                            name="ocrLanguage"
+                            value={formData.ocrLanguage}
+                            onChange={handleChange}
+                            innerPadding={innerPadding}
+                            options={[
+                                { value: 'English', label: 'English' },
+                                { value: 'Japanese', label: 'Japanese' },
+                                { value: 'French', label: 'French' }
+                            ]}
+                        />
+
+                        <SettingRow
+                            label="Translation Target"
+                            isSelect
+                            name="translateLanguage"
+                            value={formData.translateLanguage}
+                            onChange={handleChange}
+                            innerPadding={innerPadding}
+                            options={[
+                                { value: 'Italian', label: 'Italian' },
+                                { value: 'Spanish', label: 'Spanish' },
+                                { value: 'English', label: 'English' }
+                            ]}
+                        />
+
+                        {formData.aiPipeline === 'local' && (
+                            <div style={{ padding: `16px ${innerPadding}` }} className="text-white/50 text-sm italic border-t border-white/5">
+                                Local pipeline configuration will be available soon.
                             </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex gap-4 p-4 justify-end border-t border-white/5">
+                            <button
+                                onClick={handleSaveManual}
+                                className={`bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:scale-105 ${capsuleClass}`}
+                                style={capsuleStyle}
+                            >
+                                Save AI Config
+                            </button>
                         </div>
                     </div>
                 </div>

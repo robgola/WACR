@@ -124,7 +124,7 @@ export class LibraryManager {
                 // `extractAllFiles` returns a flat array of file objects. 
                 // The file objects contain `path` (Virtual Absolute Path).
 
-                const allFiles = this.provider.extractAllFiles(item);
+                const allFiles = await this.provider.extractAllFiles(item);
 
                 for (const file of allFiles) {
                     // Recalculate Path for each file

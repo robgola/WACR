@@ -181,6 +181,13 @@ const DownloadConfirmationDialog = ({ isOpen, targetNode, onClose, onConfirm }) 
                                 <span>{progressState.percent}%</span>
                             </div>
 
+                            {/* Current File Name */}
+                            <div className="text-center h-6">
+                                <p className="text-xs text-white/50 truncate font-mono px-4">
+                                    {progressState.currentFile || "Preparing..."}
+                                </p>
+                            </div>
+
                             {/* Progress Bar - Thicker, Glowing */}
                             <div className="h-6 w-full bg-black/40 rounded-full overflow-hidden shadow-inner border border-white/5">
                                 <div
