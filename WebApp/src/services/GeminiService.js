@@ -144,7 +144,11 @@ export const geminiService = {
      * PIPELINE: Yolo (Local) + Gemini (Cloud)
      * Takes pre-detected YOLO balloons, crops them, and sends a multi-modal batch to Gemini 2.5 Flash.
      */
-    async translateBalloons(imageBlob, balloons) {
+    /**
+     * PIPELINE: Yolo (Local) + Gemini (Cloud)
+     * Takes pre-detected YOLO balloons, crops them, and sends a multi-modal batch to Gemini 2.0 Flash.
+     */
+    async translateBalloons(imageBlob, balloons, maxRetries = 3) {
         const apiKey = this.getApiKey();
         if (!apiKey) throw new Error("Missing Gemini API Key. Please configure it in Settings.");
 
@@ -205,51 +209,82 @@ Schema for each object in the array:
             }
         };
 
-        // 4. Send Request
-        const response = await fetch(`${BASE_URL}?key=${apiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
+        // 4. Send Request with Retry & Timeout logic
+        let attempt = 0;
+        while (attempt <= maxRetries) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout
 
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Gemini API Error (${response.status}): ${errText}`);
-        }
+            try {
+                const response = await fetch(`${BASE_URL}?key=${apiKey}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                });
 
-        const data = await response.json();
-        const jsonString = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                clearTimeout(timeoutId);
 
-        if (!jsonString) throw new Error("Empty response from Gemini.");
+                if (!response.ok) {
+                    const errText = await response.text();
 
-        // 5. Parse JSON and merge
-        try {
-            let translations = JSON.parse(jsonString);
-            if (!Array.isArray(translations)) {
-                // Sometimes Gemini wraps it in an object like { "translations": [...] }
-                const maybeArray = Object.values(translations).find(Array.isArray);
-                if (maybeArray) {
-                    translations = maybeArray;
-                } else {
-                    throw new Error("Expected JSON array from Gemini.");
+                    // Specific handling for Rate Limits and Server Errors
+                    if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+                        const waitTime = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s...
+                        console.warn(`[Gemini] Error ${response.status}. Retrying in ${waitTime}ms... (Attempt ${attempt + 1}/${maxRetries})`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        attempt++;
+                        continue;
+                    }
+                    throw new Error(`Gemini API Error (${response.status}): ${errText}`);
                 }
-            }
 
-            return balloons.map((b, i) => {
-                const trans = translations[i] || {};
-                return {
-                    ...b,
-                    text_original: trans.original_text || "",
-                    text_translated: trans.translated_text || "",
-                    text_preview: trans.original_text || "[No Text]",
-                    shape: trans.shape || "OVAL",
-                    background_color: trans.background_color || "#FFFFFF",
-                    is_uppercase: trans.is_uppercase ?? true
-                };
-            });
-        } catch (e) {
-            console.error("Gemini JSON Parse Error:", e, jsonString);
-            throw new Error("Failed to parse Gemini response.");
+                const data = await response.json();
+                const jsonString = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (!jsonString) throw new Error("Empty response from Gemini.");
+
+                // 5. Parse JSON and merge
+                try {
+                    let translations = JSON.parse(jsonString);
+                    if (!Array.isArray(translations)) {
+                        const maybeArray = Object.values(translations).find(Array.isArray);
+                        if (maybeArray) {
+                            translations = maybeArray;
+                        } else {
+                            throw new Error("Expected JSON array from Gemini.");
+                        }
+                    }
+
+                    return balloons.map((b, i) => {
+                        const trans = translations[i] || {};
+                        return {
+                            ...b,
+                            text_original: trans.original_text || "",
+                            text_translated: trans.translated_text || "",
+                            text_preview: trans.original_text || "[No Text]",
+                            shape: trans.shape || "OVAL",
+                            background_color: trans.background_color || "#FFFFFF",
+                            is_uppercase: trans.is_uppercase ?? true
+                        };
+                    });
+                } catch (e) {
+                    console.error("Gemini JSON Parse Error:", e, jsonString);
+                    throw new Error("Failed to parse Gemini response.");
+                }
+
+            } catch (err) {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    console.error("[Gemini] Request timed out (45s).");
+                    if (attempt < maxRetries) {
+                        attempt++;
+                        continue;
+                    }
+                    throw new Error("Gemini request timed out after multiple attempts.");
+                }
+                throw err;
+            }
         }
     },
 

@@ -38,6 +38,16 @@ Highly optimized viewer with two execution modes based on `settings.debugMode`:
 *   `LocalLibrary.jsx`: Virtualized grid (Virtuoso) for high-performance viewing of thousands of books.
 *   `ContinueReadingCarousel.jsx`: Smart preview of recent history and folder contents.
 
+### 4. Optimized Service Layer
+*   **PageTranslationOrchestrator (`src/services/PageTranslationOrchestrator.js`):**
+    *   Manages AI job concurrency (max 1 active task).
+    *   Implements priority (HIGH for current page, LOW for prefetch).
+    *   Handles job deduplication and stale request cancellation.
+*   **DownloadScheduler (`src/services/downloads/index.js`):**
+    *   Prioritized queue (Bulk: 0, Normal: 1, Reader: 2).
+    *   Persistent state in IndexedDB (resumes on restart).
+    *   Exponential backoff retry policy (2s, 4s, 8s...).
+
 ---
 
 ## 🤖 AI Modules (WebGPU Accelerated)
@@ -45,7 +55,7 @@ Highly optimized viewer with two execution modes based on `settings.debugMode`:
 1.  **Detection (`src/modules/detection.js`):** YOLOv8 model running via `onnxruntime-web`.
 2.  **OCR (`src/modules/ocr.js`):** PaddleOCR wrapper for local text extraction.
 3.  **Translate (`src/modules/translate.js`):** WebLLM bridge targeting Qwen2-0.5B for fast, local context-aware translation.
-4.  **Hybrid Cloud (`src/services/GeminiService.js`):** Sends balloon blobs to Gemini 2.0 Flash for superior quality when online.
+4.  **Hybrid Cloud (`src/services/GeminiService.js`):** Sends balloon blobs to Gemini 2.0 Flash for superior quality when online. Includes 45s timeout and auto-retry logic.
 
 ---
 
@@ -60,9 +70,10 @@ Highly optimized viewer with two execution modes based on `settings.debugMode`:
 *   [x] **Component Decoupling**: App.jsx is slim; components are modular and testable.
 *   [x] **Language & Debug Flags**: Persist correctly in `acr_settings_v3`.
 *   [x] **Silent Translation**: Production-ready flow implemented.
+*   [x] **Optimized Translation Pipeline**: Orchestrator + Prefetching.
+*   [x] **Robust Download Scheduler**: Prioritized, persistent, and resilient.
 *   [ ] **Magic Wand Adjustments**: User requested removing the automatic merge of overlapping balloons to allow manual refinement.
 *   [ ] **BCR Support**: Verify/Implement `.cbr` (RAR) archive compatibility for sidecar storage.
-*   [ ] **Optimization**: Continuous audit of `URL.revokeObjectURL` in the reader.
 
 ---
 

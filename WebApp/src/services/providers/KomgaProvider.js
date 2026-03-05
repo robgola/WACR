@@ -340,6 +340,12 @@ export class KomgaProvider {
         };
     }
 
+    async downloadBook(bookId) {
+        const res = await fetch(`${this.baseUrl}/books/${bookId}/file`, { headers: this.headers });
+        if (!res.ok) throw new Error(`Download failed with status: ${res.status}`);
+        return await res.blob();
+    }
+
     async getFileStream(path) {
         throw new Error("Download should be handled by ID in App.");
     }

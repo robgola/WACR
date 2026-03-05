@@ -157,16 +157,15 @@ const RemoteBookList = ({ config }) => {
         downloadService.addToQueue(
             book.id,
             bTitle,
-            async () => {
-                const res = await fetch(downloadUrl, { headers: komgaService.headers });
-                if (!res.ok) throw new Error("Download failed");
-                return await res.blob();
-            },
-            "",
-            thumbUrl,
-            fullMetadata,
-            komgaService.headers,
-            realFilename
+            null, // downloadFn is now redundant, scheduler uses LibraryManager
+            {
+                priority: 1, // Normal priority for manual single download
+                folderPath: "",
+                coverUrl: thumbUrl,
+                metadata: fullMetadata,
+                headers: komgaService.headers,
+                filename: realFilename
+            }
         );
     };
 

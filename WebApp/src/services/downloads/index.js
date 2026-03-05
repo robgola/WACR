@@ -2,37 +2,48 @@ import { openDB } from 'idb';
 import { opfsManager } from '../opfsManager';
 
 const DB_NAME = 'acr_downloads_v1';
-const STORE_NAME = 'books';
+const QUEUE_STORE = 'download_queue'; // Persistence for resume
+const BOOKS_STORE = 'books';
 
+/**
+ * DownloadService (Refactored to DownloadScheduler)
+ * Milestone 3: Prioritized Queue, Retries, and Concurrency Control.
+ */
 export class DownloadService {
     constructor() {
-        this.dbPromise = openDB(DB_NAME, 2, {
+        this.dbPromise = openDB(DB_NAME, 3, {
             upgrade(db, oldVersion, newVersion, transaction) {
-                if (oldVersion < 1) {
-                    db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-                }
-                if (oldVersion < 2) {
-                    db.createObjectStore('folders', { keyPath: 'path' });
-                }
+                if (oldVersion < 1) db.createObjectStore(BOOKS_STORE, { keyPath: 'id' });
+                if (oldVersion < 2) db.createObjectStore('folders', { keyPath: 'path' });
+                if (oldVersion < 3) db.createObjectStore(QUEUE_STORE, { keyPath: 'id' });
             },
         });
 
-        // Queue State
+        // Queue: { id, priority, status, retryCount, ... }
+        // Priorities: 0 (bulk), 1 (normal), 2 (reader-target)
         this.queue = [];
-        this.currentDownload = null;
         this.isDownloading = false;
+        this.isPaused = false;
+        this.maxConcurrent = 2;
+        this.activeDownloads = 0;
         this.listeners = new Set();
 
-        // Session Stats
-        this.sessionTotal = 0;
-        this.sessionCompleted = 0;
-        this.sessionFailed = 0;
+        // Stats
+        this.stats = { total: 0, completed: 0, failed: 0 };
 
-        this.isPaused = false;
-        this.activeDownloads = 0;
+        // Initialize queue from DB
+        this.init();
     }
 
-    // --- Queue Management ---
+    async init() {
+        const db = await this.dbPromise;
+        const savedQueue = await db.getAll(QUEUE_STORE);
+        // Retain only non-completed
+        this.queue = savedQueue.filter(item => item.status !== 'completed');
+        this.stats.total = this.queue.length;
+        this.notify();
+        this.processQueue();
+    }
 
     subscribe(listener) {
         this.listeners.add(listener);
@@ -40,212 +51,196 @@ export class DownloadService {
     }
 
     notify() {
-        if (this._notifyTimeout) clearTimeout(this._notifyTimeout);
-        this._notifyTimeout = setTimeout(() => {
-            const total = this.sessionTotal || this.queue.length + (this.currentDownload ? 1 : 0);
-            const percent = total > 0 ? Math.round(((this.sessionCompleted + this.sessionFailed) / total) * 100) : 0;
+        const percent = this.stats.total > 0 ? Math.round((this.stats.completed / this.stats.total) * 100) : 0;
+        const currentItems = this.queue.filter(i => i.status === 'downloading');
+        const current = currentItems[0] || null;
 
-            for (const listener of this.listeners) {
-                listener({
-                    queue: this.queue,
-                    current: this.currentDownload,
-                    isDownloading: this.isDownloading,
-                    isPaused: this.isPaused,
-                    stats: {
-                        total: this.sessionTotal,
-                        completed: this.sessionCompleted,
-                        failed: this.sessionFailed,
-                        percent: percent,
-                        currentFile: this.currentDownload?.name || "" // Add Filename
-                    }
-                });
-            }
-        }, 300); // Debounce 300ms
+        for (const listener of this.listeners) {
+            listener({
+                queue: this.queue,
+                current, // Restored for UI compatibility
+                isDownloading: this.activeDownloads > 0,
+                isPaused: this.isPaused,
+                stats: {
+                    ...this.stats,
+                    percent,
+                    currentFile: current?.name || ""
+                }
+            });
+        }
     }
 
-    addToQueue(bookId, bookName, downloadFn, folderPath = "", coverUrl = null, metadata = {}, headers = {}, filename = null) {
-        if (this.queue.some(i => i.id === bookId) || this.currentDownload?.id === bookId) return;
+    /**
+     * Add to queue with priority
+     */
+    async addToQueue(bookId, bookName, downloadFn, options = {}) {
+        const {
+            priority = 1, // 0: bulk, 1: normal, 2: high (reader-target)
+            folderPath = "",
+            coverUrl = null,
+            metadata = {},
+            headers = {},
+            filename = null
+        } = options;
 
-        // Use safe fallback if filename not provided
+        if (this.queue.some(i => i.id === bookId)) return;
+
         const safeName = filename || bookName.replace(/[:/\\?%*|"<>]/g, "-") + ".cbz";
 
-        this.queue.push({ id: bookId, name: bookName, downloadFn, folderPath, coverUrl, metadata, headers, filename: safeName });
+        const item = {
+            id: bookId,
+            name: bookName,
+            priority,
+            status: 'queued',
+            retryCount: 0,
+            folderPath,
+            coverUrl,
+            metadata,
+            headers,
+            filename: safeName,
+            addedAt: Date.now()
+        };
 
-        if (!this.isDownloading && !this.isPaused && this.queue.length === 1 && !this.currentDownload) {
-            // Start new session if idle
-            this.sessionTotal = 1;
-            this.sessionCompleted = 0;
-            this.sessionFailed = 0;
-        } else {
-            // Append to running session
-            this.sessionTotal++;
-        }
+        // Persist and add to memory
+        const db = await this.dbPromise;
+        await db.put(QUEUE_STORE, item);
 
-        // Force immediate notify on add, then debounce updates
-        // Actually, debounce is fine.
+        this.queue.push(item);
+        this.stats.total++;
+
+        // Sort queue by priority
+        this._sortQueue();
+
         this.notify();
         this.processQueue();
     }
 
-    // Controls
+    _sortQueue() {
+        this.queue.sort((a, b) => b.priority - a.priority || a.addedAt - b.addedAt);
+    }
+
     pause() {
-        if (this.isDownloading) {
-            this.isPaused = true;
-            this.notify();
-        }
-    }
-
-    resume() {
-        if (this.isPaused) {
-            this.isPaused = false;
-            this.notify();
-            this.processQueue();
-        }
-    }
-
-    stop() {
-        // Stop: Clear queue, let current finish, then idle.
-        console.log("🛑 Stopping Download Queue");
-        this.queue = [];
-        this.isPaused = false;
-        // We let the current download finish (no abort controller yet).
-        // But we update UI immediately? 
-        // Wait for current to finish to set isDownloading=false?
-        // Let's set a flag "stopping".
-        // Actually, clearing queue is enough. processQueue loop will exit after current.
+        this.isPaused = true;
         this.notify();
     }
 
-    // Concurrent Queue Processing
+    resume() {
+        this.isPaused = false;
+        this.notify();
+        this.processQueue();
+    }
+
     async processQueue() {
-        const MAX_CONCURRENT = 1; // Simplify to 1 for stability/pause logic? Or keep 3?
-        // 3 concurrent downloads might be heavy if not careful. Stick to 1 or 2.
-        // Let's stick to existing logic but sequential is safer for pause.
-        // Or stick to parallel.
-        // Resume logic needs to be careful not to spawn multiple loops.
+        if (this.isPaused || this.activeDownloads >= this.maxConcurrent) return;
 
-        // Stop processing if paused or empty
-        if ((this.queue.length === 0 && this.activeDownloads === 0) || (this.isPaused && this.activeDownloads === 0)) {
-            // Only set downloading false if actually done (or paused and everything finished)
-            if (this.queue.length === 0) {
-                this.isDownloading = false;
-            }
-            return;
-        }
+        const nextItem = this.queue.find(i => i.status === 'queued' || i.status === 'failed_retry');
+        if (!nextItem) return;
 
-        // If Paused, do not pick new tasks.
-        if (this.isPaused) return;
+        this.activeDownloads++;
+        nextItem.status = 'downloading';
+        this.notify();
 
-        while (this.activeDownloads < 3 && this.queue.length > 0) { // Keep 3 concurrent
+        this.downloadItem(nextItem).finally(() => {
+            this.activeDownloads--;
+            this.processQueue();
+        });
 
-            // Re-check pause in loop
-            if (this.isPaused) break;
-
-            this.isDownloading = true;
-            this.activeDownloads = (this.activeDownloads || 0) + 1;
-
-            const item = this.queue.shift();
-            this.currentDownload = item;
-            this.notify();
-
-            this.downloadItem(item).then(() => {
-                this.activeDownloads--;
-                this.processQueue();
-            });
+        // If we have room for more, trigger again
+        if (this.activeDownloads < this.maxConcurrent) {
+            this.processQueue();
         }
     }
 
     async downloadItem(item) {
         try {
-            // 1. SMART SKIP: Check if file already exists in OPFS
-            const exists = await opfsManager.fileExists(item.filename ? `${item.folderPath}/${item.filename}` : null);
-            if (exists) {
-                console.log(`⏩ [Smart Skip] File already exists: ${item.name}`);
-                this.sessionCompleted++; // Count as success (instant)
-                this.notify();
+            // Smart Skip
+            const targetPath = item.filename ? `${item.folderPath}/${item.filename}` : null;
+            if (await opfsManager.fileExists(targetPath)) {
+                console.log(`[Scheduler] Smart Skip: ${item.name}`);
+                await this._completeItem(item);
                 return;
             }
 
-            console.log(`⬇️ Starting download: ${item.name}`);
+            // Execute actual download logic (this needs to be reconstructed from komgaService if needed)
+            // For now, let's assume the downloadFn is passed or we fetch it.
+            // Wait, in previous version downloadFn was passed. But we can't persist functions in DB.
+            // We should use bookId to fetch from provider via libraryManager.
 
-            // 2. Ensure Directory exists
-            if (item.folderPath) {
-                await opfsManager.ensureDirectoryStructure(item.folderPath);
-            }
+            const { libraryManager } = await import('../LibraryManager');
+            const blob = await libraryManager.provider.downloadBook(item.id);
 
-            const blob = await item.downloadFn();
-
-            // Try fetch cover blob if url provided
+            // Cover
             let coverBlob = null;
-            if (item.coverUrl && !item.coverUrl.startsWith('blob:')) {
+            if (item.coverUrl) {
                 try {
-                    const response = await fetch(item.coverUrl, { headers: item.headers });
-                    coverBlob = await response.blob();
-                } catch (e) { console.warn("Failed to fetch cover for saving", e); }
+                    const res = await fetch(item.coverUrl, { headers: item.headers });
+                    if (res.ok) coverBlob = await res.blob();
+                } catch (e) { console.warn("Cover fetch failed", e); }
             }
 
-            await this.saveBookRef(item.id, blob, item.name, item.coverUrl, item.folderPath, item.metadata, coverBlob, item.filename);
-            console.log(`✅ Finished download: ${item.name}`);
-            this.sessionCompleted++;
+            // Save
+            await this.saveBookRef(item, blob, coverBlob);
+            await this._completeItem(item);
+
         } catch (error) {
-            console.error(`❌ Failed download: ${item.name}`, error);
-            this.sessionFailed++;
-            // Dispatch error event for UI Toast
-            window.dispatchEvent(new CustomEvent('download-error', {
-                detail: { message: `Download failed: ${item.name}`, error: error.message }
-            }));
+            console.error(`[Scheduler] Failed: ${item.name}`, error);
+
+            // Retry Policy
+            const isRetryable = error.status === 429 || error.status >= 500 || error.message.includes('network') || error.message.includes('timeout');
+            const isCriticalId = error.status === 401 || error.status === 403 || error.status === 404;
+
+            if (isRetryable && item.retryCount < 3) {
+                item.retryCount++;
+                item.status = 'failed_retry';
+                const wait = Math.pow(2, item.retryCount) * 2000;
+                console.log(`[Scheduler] Retrying ${item.name} in ${wait}ms...`);
+                setTimeout(() => this.processQueue(), wait);
+            } else {
+                item.status = 'failed';
+                this.stats.failed++;
+                if (isCriticalId) {
+                    console.error(`[Scheduler] Critical Error for ${item.name}. Stopping retries.`);
+                }
+            }
+
+            const db = await this.dbPromise;
+            await db.put(QUEUE_STORE, item);
         } finally {
             this.notify();
         }
     }
 
-    // --- Persistance (Write-Only for Download Service) ---
+    async _completeItem(item) {
+        item.status = 'completed';
+        this.stats.completed++;
 
-    async saveBookRef(bookId, blob, title, originalCoverUrl, folderPath, metadata, coverBlob, filename) {
         const db = await this.dbPromise;
+        await db.delete(QUEUE_STORE, item.id); // Remove from queue, it's now in 'books' store
 
-        // 1. Determine OPFS Paths
-        const finalFileName = filename || title.replace(/[:/\\?%*|"<>]/g, "-") + ".cbz";
+        this.notify();
+    }
 
-        let bookPath;
-        if (folderPath) {
-            const cleanFolder = folderPath.replace(/\\/g, '/').replace(/\/$/, '');
-            bookPath = `${cleanFolder}/${finalFileName}`;
-        } else {
-            const library = metadata?.libraryName ? metadata.libraryName.replace(/[:/\\?%*|"<>]/g, " ") : "Unknown Library";
-            const series = metadata?.seriesTitle ? metadata.seriesTitle.replace(/[:/\\?%*|"<>]/g, "-") : "Unknown Series";
-            bookPath = `Library/${library}/${series}/${finalFileName}`;
-        }
-        const thumbnailPath = `Cache/thumbnails/${bookId}.jpg`;
+    async saveBookRef(item, blob, coverBlob) {
+        const finalFileName = item.filename;
+        const bookPath = item.folderPath ? `${item.folderPath}/${finalFileName}` : `Library/Auto/${finalFileName}`;
+        const thumbnailPath = `Cache/thumbnails/${item.id}.jpg`;
 
-        // 2. Save Blob to OPFS
         await opfsManager.saveFile(bookPath, blob);
+        if (coverBlob) await opfsManager.saveFile(thumbnailPath, coverBlob);
 
-        // 3. Save Thumbnail to OPFS
-        if (coverBlob) {
-            await opfsManager.saveFile(thumbnailPath, coverBlob);
-        } else if (originalCoverUrl && originalCoverUrl.startsWith('blob:')) {
-            try {
-                const res = await fetch(originalCoverUrl);
-                const b = await res.blob();
-                await opfsManager.saveFile(thumbnailPath, b);
-            } catch (e) { console.warn("Could not save blob cover to OPFS", e); }
-        }
-
-        // 4. Save Metadata to IDB
         const bookData = {
-            id: bookId,
-            title,
+            id: item.id,
+            title: item.name,
             opfsPath: bookPath,
             coverOpfsPath: thumbnailPath,
-            folderPath: folderPath || "",
+            folderPath: item.folderPath || "",
             downloadedAt: Date.now(),
-            metadata: metadata || {},
-            seriesTitle: metadata?.seriesTitle || "",
-            name: title
+            metadata: item.metadata || {},
+            name: item.name
         };
 
-        await db.put(STORE_NAME, bookData);
+        const db = await this.dbPromise;
+        await db.put(BOOKS_STORE, bookData);
     }
 }
 

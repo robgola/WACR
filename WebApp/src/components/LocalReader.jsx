@@ -9,6 +9,7 @@ import { detectionModule } from '../modules/detection';
 import { ocrModule } from '../modules/ocr';
 import { translateModule } from '../modules/translate';
 import { geminiService } from '../services/GeminiService';
+import { pageTranslationOrchestrator } from '../services/PageTranslationOrchestrator';
 import LocalOverlay from './viewer/LocalOverlay';
 import ViewerControls from './viewer/ViewerControls';
 
@@ -51,6 +52,12 @@ const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 
     const [showTranslated, setShowTranslated] = useState(false);
     const [overlayItems, setOverlayItems] = useState([]); // Balloon Data
     const [isDetecting, setIsDetecting] = useState(false);
+    const [translationStatus, setTranslationStatus] = useState('idle'); // idle | translating | translated | failed
+    const currentPageRef = useRef(currentPage);
+
+    useEffect(() => {
+        currentPageRef.current = currentPage;
+    }, [currentPage]);
 
     // Tuner Config
     const topMargin = config?.comicTopMargin ?? 16;
@@ -204,6 +211,31 @@ const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 
         return () => window.removeEventListener('keydown', handleKey);
     }, [nextPage, prevPage, onClose]);
 
+    /**
+     * Prefetch translation for the next page (Milestone 2)
+     */
+    const prefetchNextPage = async (pageIndex) => {
+        if (pageIndex >= pages.length - 1) return;
+
+        const nextIdx = pageIndex + 1;
+        const nextUrl = pages[nextIdx];
+        if (!nextUrl) return;
+
+        try {
+            console.log(`[Reader] Prefetching Page ${nextIdx}...`);
+            const response = await fetch(nextUrl);
+            const blob = await response.blob();
+
+            // Enqueue LOW priority job
+            await pageTranslationOrchestrator.translatePage(bookId, nextIdx, blob, {
+                priority: 'LOW',
+                force: false
+            });
+        } catch (err) {
+            console.warn(`[Reader] Prefetch Failed for Page ${nextIdx}:`, err);
+        }
+    };
+
     if (loading) {
         return (
             <div className="fixed inset-0 z-50 bg-black flex items-center justify-center text-white">
@@ -300,140 +332,51 @@ const LocalReader = ({ bookId, onClose, config, onProgressUpdate, initialPage = 
                 onTranslate={async () => {
                     // Single Tap Logic - Start Translation
                     // Check if we should translate (or if we already have it)
-                    if (isDetecting) return;
-
-                    const pipeline = localStorage.getItem('acr_ai_pipeline') || 'local';
-
-                    if (pipeline === 'local') {
-                        // ... Local Logic (Refactored to Module)
-                        try {
-                            setIsDetecting(true);
-                            console.log("Starting Local ONNX Detection...");
-
-                            const currentUrl = pages[currentPage];
-                            const response = await fetch(currentUrl);
-                            const blob = await response.blob();
-
-                            // 1. DETECTION
-                            const result = await detectionModule.detectBalloons(blob);
-                            console.log("Local Results:", result);
-
-                            let balloons = result.balloons;
-
-                            // Show Detection Immediately only if Debug Mode is ON
-                            if (settings?.debugMode) {
-                                setOverlayItems(balloons);
-                                setShowTranslated(true);
-                            }
-
-                            // 2. OCR (Async Update)
-                            // Ideally show a "scanning..." state on the balloons?
-                            console.log("Starting OCR...");
-
-                            balloons = await ocrModule.extractText(blob, balloons, (curr, total) => {
-                                // Optional: Update a progress bar or just log
-                                console.log(`OCR Progress: ${curr}/${total}`);
-                            });
-
-                            // Update Overlay with Text
-                            setOverlayItems([...balloons]); // Force re-render
-                            setHasTranslation(true); // Now we have "originals" at least
-
-                            // 3. TRANSLATION (Async Update via WebLLM)
-                            console.log("Starting WebLLM Translation...");
-
-                            // Initialize with progress callback to show download status
-                            // Ideally this would update a neat UI progress bar, but console is fine for now
-                            await translateModule.init((report) => {
-                                console.log("[Download Progress]", report);
-                            });
-
-                            balloons = await translateModule.translateBalloons(balloons, (curr, total) => {
-                                console.log(`Translate Progress: ${curr}/${total}`);
-                                setOverlayItems([...balloons]); // Update UI sequentially as balloons are translated
-                            });
-
-                            // Ensure GPU is freed after processing the page
-                            await translateModule.destroy();
-
-                            // SAVE TO ACR
-                            const pageData = {
-                                status: "translated", // fully finished
-                                source: "offline_yolov8_paddle_qwen",
-                                balloons: balloons,
-                                processing_time_ms: result.processing_time_ms,
-                                image_dimensions: result.image_dimensions
-                            };
-                            setHasTranslation(true);
-
-                            if (settings?.debugMode) {
-                                alert(`Analysis & Translation Complete!\nDetected: ${balloons.length}`);
-                            }
-
-                        } catch (err) {
-                            console.error("Local Detection Failed:", err);
-                            alert(`Local Detection Failed: ${err.message}`);
-                        } finally {
-                            setIsDetecting(false);
-                        }
-                        return;
-                    }
-
-                    // GEMINI LOGIC (Hybrid YOLO + Cloud)
                     try {
                         setIsDetecting(true);
-                        console.log("Starting Cloud Hybrid Pipeline: YOLO (Local) -> Gemini (Cloud)...");
+                        setTranslationStatus('translating');
 
-                        const currentUrl = pages[currentPage];
+                        const targetPage = currentPage;
+                        const currentUrl = pages[targetPage];
                         const response = await fetch(currentUrl);
                         const blob = await response.blob();
 
-                        const apiKey = localStorage.getItem('acr_gemini_api_key');
-                        if (!apiKey) throw new Error("Missing Gemini API Key in Settings.");
-
-                        // 1. DETECTION (Local YOLO)
-                        console.log("[Hybrid] Detecting balloons with local YOLO...");
-                        const detectionResult = await detectionModule.detectBalloons(blob);
-                        let balloons = detectionResult.balloons;
-
-                        if (balloons.length === 0) {
-                            showToast("No speech bubbles detected on this page.", "warning");
-                            setIsDetecting(false);
-                            return;
-                        }
-
-                        // Show Detection Immediately only if Debug Mode is ON
-                        if (settings?.debugMode) {
-                            setOverlayItems(balloons);
-                            setShowTranslated(true);
-                        }
-
-                        // 2. OCR & TRANSLATION (Cloud Gemini)
-                        console.log("[Hybrid] Sending batch balloon crops to Gemini 2.5 Flash...");
-                        balloons = await geminiService.translateBalloons(blob, balloons);
-
-                        // Update Overlay with Text
-                        setOverlayItems([...balloons]);
-                        setHasTranslation(true);
-                        setShowTranslated(true);
-
-                        // SAVE TO ACR
-                        await acrStorage.setPageTranslation(bookId, currentPage, {
-                            status: "translated",
-                            source: "hybrid_yolo_gemini",
-                            balloons: balloons,
-                            processing_time_ms: detectionResult.processing_time_ms
+                        const balloons = await pageTranslationOrchestrator.translatePage(bookId, targetPage, blob, {
+                            priority: 'HIGH',
+                            force: false
                         });
 
-                        if (settings?.debugMode) {
-                            showToast(`Cloud Translation Complete! Processed ${balloons.length} balloons.`, "success");
+                        // GUARD: Only update if we are still on the same page
+                        if (currentPageRef.current === targetPage) {
+                            if (balloons && balloons.length > 0) {
+                                setOverlayItems(balloons);
+                                setHasTranslation(true);
+                                setShowTranslated(true);
+                                setTranslationStatus('translated');
+                                if (settings?.debugMode) {
+                                    showToast(`Translation Complete! Found ${balloons.length} balloons.`, "success");
+                                }
+
+                                // Trigger Prefetch for next page (Milestone 2)
+                                prefetchNextPage(targetPage);
+                            } else if (balloons && balloons.length === 0) {
+                                setTranslationStatus('idle');
+                                showToast("No speech bubbles detected on this page.", "warning");
+                            }
+                        } else {
+                            console.log(`[Reader] Translation for page ${targetPage} finished but user moved to ${currentPageRef.current}. Ignoring UI update.`);
                         }
 
                     } catch (err) {
-                        console.error("Cloud Translation Failed:", err);
-                        showToast(`Cloud Translation Failed: ${err.message}`, "error");
+                        if (err.message !== "Aborted") {
+                            setTranslationStatus('failed');
+                            console.error("Translation Failed:", err);
+                            showToast(`Translation Failed: ${err.message}`, "error");
+                        }
                     } finally {
-                        setIsDetecting(false);
+                        if (currentPageRef.current === currentPage) {
+                            setIsDetecting(false);
+                        }
                     }
                 }}
                 onForceTranslate={() => {

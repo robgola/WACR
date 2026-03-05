@@ -196,18 +196,15 @@ const RemoteSeriesList = ({ config }) => {
                 downloadService.addToQueue(
                     item.id,
                     item.name,
-                    async () => {
-                        const res = await fetch(`${komgaService.baseUrl}/books/${item.id}/file`, {
-                            headers: komgaService.headers
-                        });
-                        if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-                        return await res.blob();
-                    },
-                    item.folderPath,
-                    libraryManager.getThumbnailUrl({ id: item.id, type: 'book' }),
-                    { ...item.metadata, type: 'manual_import' },
-                    komgaService.headers,
-                    item.name
+                    null,
+                    {
+                        priority: 0, // Bulk priority
+                        folderPath: item.folderPath,
+                        coverUrl: libraryManager.getThumbnailUrl({ id: item.id, type: 'book' }),
+                        metadata: { ...item.metadata, type: 'manual_import' },
+                        headers: komgaService.headers,
+                        filename: item.name
+                    }
                 );
 
                 processed++;
@@ -317,18 +314,21 @@ const RemoteSeriesList = ({ config }) => {
                             downloadService.addToQueue(
                                 book.id,
                                 book.metadata?.title || book.name,
-                                downloadFn,
-                                seriesPath,
-                                `${komgaService.baseUrl}/books/${book.id}/thumbnail`,
+                                null,
                                 {
-                                    libraryName: libraryName || "Unknown Library",
-                                    publisher: seriesItem.metadata?.publisher,
-                                    seriesTitle: seriesItem.metadata?.title || seriesItem.name || "Unknown Series",
-                                    number: book.metadata?.number,
-                                    summary: book.metadata?.summary
-                                },
-                                komgaService.headers,
-                                realFilename
+                                    priority: 2, // High priority for series-level trigger
+                                    folderPath: seriesPath,
+                                    coverUrl: `${komgaService.baseUrl}/books/${book.id}/thumbnail`,
+                                    metadata: {
+                                        libraryName: libraryName || "Unknown Library",
+                                        publisher: seriesItem.metadata?.publisher,
+                                        seriesTitle: seriesItem.metadata?.title || seriesItem.name || "Unknown Series",
+                                        number: book.metadata?.number,
+                                        summary: book.metadata?.summary
+                                    },
+                                    headers: komgaService.headers,
+                                    filename: realFilename
+                                }
                             );
                         }
                         processed++;

@@ -72,6 +72,14 @@ export class YacProvider {
         };
     }
 
+    async downloadBook(path) {
+        const url = new URL(`${this.baseUrl}/library/file`);
+        url.searchParams.append('path', path);
+        const res = await fetch(url.toString(), { headers: this.headers });
+        if (!res.ok) throw new Error(`Download failed with status: ${res.status}`);
+        return await res.blob();
+    }
+
     async getFileStream(path) {
         // YAC allows file download by path usually
         // GET /library/file?path=...
