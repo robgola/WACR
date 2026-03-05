@@ -12,6 +12,15 @@ xcuserdata/
 *.itunespackage
 Config.xcconfig
 
+# Native Project Folders
+KomgaReaderAntigravity/
+KomgaReaderAntigravity_Ex.xcodeproj/
+KomgaReaderAntigravity_Ex.xcworkspace/
+docs/
+Podfile
+Podfile.lock
+Pods/
+
 # CocoaPods
 Pods/
 Podfile.lock
